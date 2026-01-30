@@ -22,6 +22,10 @@ schenesort sanitize ~/wallpapers -r
 
 # Validate image extensions
 schenesort validate ~/wallpapers --fix
+
+# AI-powered renaming (requires Ollama with a vision model)
+schenesort describe ~/wallpapers --dry-run
+schenesort describe ~/wallpapers -m llava:13b
 ```
 
 ## Commands
@@ -31,6 +35,8 @@ schenesort validate ~/wallpapers --fix
 | `sanitize` | Rename files to Unix-friendly format      |
 | `validate` | Check image extensions match file content |
 | `info`     | Show collection statistics                |
+| `describe` | AI-rename images based on content (Ollama)|
+| `metadata` | Manage XMP sidecar metadata               |
 
 ## Filename Sanitization Rules
 
@@ -49,3 +55,79 @@ The `sanitize` command applies these rules to make filenames Unix-friendly:
 | Empty stem fallback         | `!@#$.jpg` → `unnamed.jpg`           |
 
 **Preserved characters:** alphanumeric, underscore, hyphen, extension dot, unicode letters
+
+## AI-Powered Renaming
+
+The `describe` command uses Ollama with a vision model to analyze images and generate descriptive filenames.
+
+### Ollama Setup (Arch Linux)
+
+```bash
+# Install from AUR
+yay -S ollama
+
+# Enable and start the service
+sudo systemctl enable ollama
+sudo systemctl start ollama
+
+# Pull a vision model
+ollama pull llava           # Default, ~4GB
+ollama pull llava:13b       # Larger/better, ~8GB
+
+# Verify it works
+ollama run llava "hello"
+```
+
+**GPU Support (NVIDIA):**
+```bash
+yay -S cuda cudnn
+```
+Ollama automatically detects and uses the GPU.
+
+### Usage
+
+```bash
+# Preview what would be renamed
+schenesort describe ~/wallpapers --dry-run
+
+# Rename with a specific model
+schenesort describe ~/wallpapers -m llava:13b
+
+# Process subdirectories
+schenesort describe ~/wallpapers -r
+```
+
+The generated description is automatically sanitized to create Unix-friendly filenames.
+
+## Metadata Management
+
+Store metadata in XMP sidecar files (`.xmp`) alongside images without modifying the original files.
+
+```bash
+# Show metadata for images
+schenesort metadata show ~/wallpapers
+schenesort metadata show image.jpg
+
+# Set metadata manually
+schenesort metadata set image.jpg -d "Mountain sunset landscape"
+schenesort metadata set image.jpg -t "nature,sunset,mountains"
+schenesort metadata set image.jpg -a "peaceful"  # add tag
+schenesort metadata set image.jpg -s "https://unsplash.com/..."
+
+# Generate metadata with AI
+schenesort metadata generate ~/wallpapers --dry-run
+schenesort metadata generate ~/wallpapers -m llava
+schenesort metadata generate ~/wallpapers --overwrite  # replace existing
+```
+
+### XMP Sidecar Format
+
+```
+~/wallpapers/
+├── mountain_sunset.jpg
+├── mountain_sunset.jpg.xmp   ← metadata stored here
+├── cyberpunk_city.png
+└── cyberpunk_city.png.xmp
+```
+
+Metadata is stored in standard XMP format, compatible with photo managers like digiKam, darktable, and Lightroom.

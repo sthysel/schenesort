@@ -1,11 +1,15 @@
 """Schenesort CLI - Wallpaper collection management tool."""
 
+import base64
 import re
 from pathlib import Path
 from typing import Annotated
 
 import filetype
+import ollama
 import typer
+
+from schenesort.xmp import get_xmp_path, read_xmp, write_xmp
 
 app = typer.Typer(
     name="schenesort",
@@ -249,6 +253,408 @@ def info(
     typer.echo("\nExtensions:")
     for ext, count in sorted(ext_counts.items(), key=lambda x: -x[1]):
         typer.echo(f"  {ext}: {count}")
+
+
+DEFAULT_MODEL = "llava"
+
+DESCRIBE_PROMPT = """Describe this image in 3-5 words suitable for a filename.
+Focus on the main subject and style. Be concise and specific.
+Output ONLY the description, no punctuation, no explanation.
+Example outputs: mountain sunset landscape, cyberpunk city night, abstract blue waves"""
+
+ANALYZE_PROMPT = """Analyze this image and provide metadata in the following exact format.
+Each field on its own line, use commas to separate multiple values.
+Be concise and specific. Use lowercase.
+
+Description: [3-5 word description for filename]
+Tags: [comma-separated keywords, 3-6 tags]
+Mood: [comma-separated moods like peaceful, dramatic, mysterious, vibrant, melancholic]
+Style: [one of: photography, digital art, illustration, 3d render, anime, painting, pixel art]
+Colors: [comma-separated dominant colors, 2-4 colors]
+Time: [one of: day, night, sunset, sunrise, golden hour, overcast, or unknown]
+Subject: [landscape, portrait, architecture, wildlife, abstract, space, urban, nature, fantasy]
+
+Example output:
+Description: neon cyberpunk city night
+Tags: cyberpunk, city, neon, futuristic, rain
+Mood: mysterious, vibrant
+Style: digital art
+Colors: purple, cyan, pink
+Time: night
+Subject: urban"""
+
+
+def describe_image(filepath: Path, model: str = DEFAULT_MODEL) -> str | None:
+    """Use Ollama vision model to describe an image (simple description only)."""
+    try:
+        with open(filepath, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
+
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": DESCRIBE_PROMPT,
+                    "images": [image_data],
+                }
+            ],
+        )
+        return response["message"]["content"].strip()
+    except ollama.ResponseError as e:
+        typer.echo(f"Ollama error: {e}", err=True)
+        return None
+    except Exception as e:
+        typer.echo(f"Error describing image: {e}", err=True)
+        return None
+
+
+def parse_metadata_response(response: str) -> dict[str, str | list[str]]:
+    """Parse structured metadata response from vision model."""
+    result: dict[str, str | list[str]] = {}
+
+    for line in response.strip().split("\n"):
+        if ":" not in line:
+            continue
+
+        key, _, value = line.partition(":")
+        key = key.strip().lower()
+        value = value.strip()
+
+        if not value:
+            continue
+
+        # Fields that should be lists
+        if key in ("tags", "mood", "colors"):
+            result[key] = [v.strip().lower() for v in value.split(",") if v.strip()]
+        else:
+            result[key] = value.lower()
+
+    return result
+
+
+def analyze_image(filepath: Path, model: str = DEFAULT_MODEL) -> dict[str, str | list[str]] | None:
+    """Use Ollama vision model to analyze an image and extract full metadata."""
+    try:
+        with open(filepath, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
+
+        response = ollama.chat(
+            model=model,
+            messages=[
+                {
+                    "role": "user",
+                    "content": ANALYZE_PROMPT,
+                    "images": [image_data],
+                }
+            ],
+        )
+        return parse_metadata_response(response["message"]["content"])
+    except ollama.ResponseError as e:
+        typer.echo(f"Ollama error: {e}", err=True)
+        return None
+    except Exception as e:
+        typer.echo(f"Error analyzing image: {e}", err=True)
+        return None
+
+
+@app.command()
+@app.command("rename", hidden=True)
+def describe(
+    path: Annotated[Path, typer.Argument(help="Directory or file to describe and rename")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Show what would be renamed")
+    ] = False,
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = False,
+    model: Annotated[
+        str, typer.Option("--model", "-m", help="Ollama vision model to use")
+    ] = DEFAULT_MODEL,
+) -> None:
+    """Rename images based on AI-generated descriptions using Ollama."""
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if path.is_file():
+        files = [path]
+    else:
+        pattern = "**/*" if recursive else "*"
+        files = [f for f in path.glob(pattern) if f.is_file()]
+
+    # Filter to only image files
+    image_files = [f for f in files if f.suffix.lower() in VALID_IMAGE_EXTENSIONS]
+
+    if not image_files:
+        typer.echo("No image files found.")
+        raise typer.Exit(0)
+
+    typer.echo(f"Processing {len(image_files)} image(s) with model '{model}'...\n")
+
+    renamed_count = 0
+    skipped_count = 0
+
+    for filepath in image_files:
+        typer.echo(f"Analyzing: {filepath.name}...", nl=False)
+
+        description = describe_image(filepath, model)
+        if not description:
+            typer.echo(" [FAILED]")
+            skipped_count += 1
+            continue
+
+        # Create new filename from description
+        new_stem = sanitize_filename(description)
+        new_name = new_stem + filepath.suffix.lower()
+
+        typer.echo(f" -> {description}")
+
+        if filepath.name == new_name:
+            typer.echo("  (no change needed)")
+            continue
+
+        new_path = filepath.parent / new_name
+
+        # Handle filename collisions by adding a number
+        counter = 1
+        while new_path.exists() and new_path != filepath:
+            new_name = f"{new_stem}_{counter}{filepath.suffix.lower()}"
+            new_path = filepath.parent / new_name
+            counter += 1
+
+        if dry_run:
+            typer.echo(f"  Would rename: {filepath.name} -> {new_name}")
+        else:
+            filepath.rename(new_path)
+            typer.echo(f"  Renamed: {filepath.name} -> {new_name}")
+
+            # Save description to XMP sidecar
+            metadata = read_xmp(new_path)
+            metadata.description = description
+            metadata.ai_model = model
+            write_xmp(new_path, metadata)
+            typer.echo(f"  Saved metadata to {get_xmp_path(new_path).name}")
+        renamed_count += 1
+
+    action = "Would rename" if dry_run else "Renamed"
+    typer.echo(f"\n{action} {renamed_count} file(s), skipped {skipped_count}.")
+
+
+# Metadata subcommand group
+metadata_app = typer.Typer(help="Manage image metadata in XMP sidecar files.")
+app.add_typer(metadata_app, name="metadata")
+
+
+@metadata_app.command("show")
+def metadata_show(
+    path: Annotated[Path, typer.Argument(help="Image file or directory")],
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = False,
+) -> None:
+    """Display metadata for image(s)."""
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if path.is_file():
+        files = [path]
+    else:
+        pattern = "**/*" if recursive else "*"
+        files = [f for f in path.glob(pattern) if f.is_file()]
+
+    image_files = [f for f in files if f.suffix.lower() in VALID_IMAGE_EXTENSIONS]
+
+    if not image_files:
+        typer.echo("No image files found.")
+        raise typer.Exit(0)
+
+    for filepath in image_files:
+        metadata = read_xmp(filepath)
+        xmp_path = get_xmp_path(filepath)
+
+        typer.echo(f"\n{filepath.name}")
+        typer.echo(f"  XMP: {xmp_path.name if xmp_path.exists() else '(not found)'}")
+
+        if metadata.is_empty():
+            typer.echo("  (no metadata)")
+        else:
+            if metadata.description:
+                typer.echo(f"  Description: {metadata.description}")
+            if metadata.tags:
+                typer.echo(f"  Tags: {', '.join(metadata.tags)}")
+            if metadata.mood:
+                typer.echo(f"  Mood: {', '.join(metadata.mood)}")
+            if metadata.style:
+                typer.echo(f"  Style: {metadata.style}")
+            if metadata.colors:
+                typer.echo(f"  Colors: {', '.join(metadata.colors)}")
+            if metadata.time_of_day:
+                typer.echo(f"  Time: {metadata.time_of_day}")
+            if metadata.subject:
+                typer.echo(f"  Subject: {metadata.subject}")
+            if metadata.source:
+                typer.echo(f"  Source: {metadata.source}")
+            if metadata.ai_model:
+                typer.echo(f"  AI Model: {metadata.ai_model}")
+
+
+@metadata_app.command("set")
+def metadata_set(
+    path: Annotated[Path, typer.Argument(help="Image file")],
+    description: Annotated[
+        str | None, typer.Option("--description", "-d", help="Set description")
+    ] = None,
+    tags: Annotated[
+        str | None, typer.Option("--tags", "-t", help="Set tags (comma-separated)")
+    ] = None,
+    add_tags: Annotated[
+        str | None, typer.Option("--add-tags", "-a", help="Add tags (comma-separated)")
+    ] = None,
+    source: Annotated[
+        str | None, typer.Option("--source", "-s", help="Set source URL/info")
+    ] = None,
+) -> None:
+    """Set metadata fields for an image."""
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if not path.is_file():
+        typer.echo("Error: Path must be a file.", err=True)
+        raise typer.Exit(1)
+
+    if path.suffix.lower() not in VALID_IMAGE_EXTENSIONS:
+        typer.echo(f"Error: '{path.name}' is not a supported image format.", err=True)
+        raise typer.Exit(1)
+
+    # Read existing metadata
+    metadata = read_xmp(path)
+
+    # Update fields
+    if description is not None:
+        metadata.description = description
+
+    if tags is not None:
+        metadata.tags = [t.strip() for t in tags.split(",") if t.strip()]
+
+    if add_tags is not None:
+        new_tags = [t.strip() for t in add_tags.split(",") if t.strip()]
+        for tag in new_tags:
+            if tag not in metadata.tags:
+                metadata.tags.append(tag)
+
+    if source is not None:
+        metadata.source = source
+
+    # Write metadata
+    write_xmp(path, metadata)
+    typer.echo(f"Updated metadata for {path.name}")
+
+
+@metadata_app.command("generate")
+def metadata_generate(
+    path: Annotated[Path, typer.Argument(help="Image file or directory")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Show what would be generated")
+    ] = False,
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = False,
+    model: Annotated[
+        str, typer.Option("--model", "-m", help="Ollama vision model to use")
+    ] = DEFAULT_MODEL,
+    overwrite: Annotated[
+        bool, typer.Option("--overwrite", help="Overwrite existing descriptions")
+    ] = False,
+) -> None:
+    """Generate metadata using AI vision model."""
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if path.is_file():
+        files = [path]
+    else:
+        pattern = "**/*" if recursive else "*"
+        files = [f for f in path.glob(pattern) if f.is_file()]
+
+    image_files = [f for f in files if f.suffix.lower() in VALID_IMAGE_EXTENSIONS]
+
+    if not image_files:
+        typer.echo("No image files found.")
+        raise typer.Exit(0)
+
+    typer.echo(f"Generating metadata for {len(image_files)} image(s) with '{model}'...\n")
+
+    generated_count = 0
+    skipped_count = 0
+
+    for filepath in image_files:
+        # Check if metadata already exists
+        existing = read_xmp(filepath)
+        if existing.description and not overwrite:
+            typer.echo(f"Skipping: {filepath.name} (already has description)")
+            skipped_count += 1
+            continue
+
+        typer.echo(f"Analyzing: {filepath.name}...", nl=False)
+
+        result = analyze_image(filepath, model)
+        if not result:
+            typer.echo(" [FAILED]")
+            skipped_count += 1
+            continue
+
+        description = result.get("description", "")
+        typer.echo(f" -> {description}")
+
+        if dry_run:
+            if result.get("tags"):
+                typer.echo(f"  Tags: {', '.join(result['tags'])}")
+            if result.get("mood"):
+                typer.echo(f"  Mood: {', '.join(result['mood'])}")
+            if result.get("style"):
+                typer.echo(f"  Style: {result['style']}")
+            if result.get("colors"):
+                typer.echo(f"  Colors: {', '.join(result['colors'])}")
+            if result.get("time"):
+                typer.echo(f"  Time: {result['time']}")
+            if result.get("subject"):
+                typer.echo(f"  Subject: {result['subject']}")
+            typer.echo("  (dry run, not saving)")
+        else:
+            metadata = existing
+            metadata.description = str(description)
+            metadata.ai_model = model
+            if isinstance(result.get("tags"), list):
+                metadata.tags = result["tags"]
+            if isinstance(result.get("mood"), list):
+                metadata.mood = result["mood"]
+            if isinstance(result.get("style"), str):
+                metadata.style = result["style"]
+            if isinstance(result.get("colors"), list):
+                metadata.colors = result["colors"]
+            if isinstance(result.get("time"), str):
+                metadata.time_of_day = result["time"]
+            if isinstance(result.get("subject"), str):
+                metadata.subject = result["subject"]
+            write_xmp(filepath, metadata)
+            typer.echo(f"  Saved to {get_xmp_path(filepath).name}")
+
+        generated_count += 1
+
+    action = "Would generate" if dry_run else "Generated"
+    typer.echo(f"\n{action} metadata for {generated_count} file(s), skipped {skipped_count}.")
 
 
 if __name__ == "__main__":
