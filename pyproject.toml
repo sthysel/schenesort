@@ -1,6 +1,6 @@
 [project]
 name = "schenesort"
-version = "0.0.3"
+version = "0.0.4"
 description = "Wallpaper collection management CLI tool"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -52,19 +52,17 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.bumpversion]
-current_version = "0.0.3"
+current_version = "0.0.4"
 commit = true
 tag = true
+tag_name = "v{new_version}"
+message = "Bump version: {current_version} → {new_version}"
+
 
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
 search = 'version = "{current_version}"'
 replace = 'version = "{new_version}"'
-
-[[tool.bumpversion.files]]
-filename = "src/schenesort/__init__.py"
-search = '__version__ = "{current_version}"'
-replace = '__version__ = "{new_version}"'
 
 [[tool.bumpversion.files]]
 filename = "README.md"

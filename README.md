@@ -1,4 +1,4 @@
-# Schenesort v0.0.3
+# Schenesort v0.0.4
 
 A CLI tool for managing wallpaper collections.
 
