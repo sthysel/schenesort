@@ -1,6 +1,6 @@
 [project]
 name = "schenesort"
-version = "0.1.0"
+version = "0.0.1"
 description = "Wallpaper collection management CLI tool"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -23,6 +23,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "bump-my-version>=1.2.6",
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
     "ruff>=0.14.14",
@@ -49,3 +50,23 @@ select = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.bumpversion]
+current_version = "0.0.1"
+commit = true
+tag = true
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"'
+replace = 'version = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "src/schenesort/__init__.py"
+search = '__version__ = "{current_version}"'
+replace = '__version__ = "{new_version}"'
+
+[[tool.bumpversion.files]]
+filename = "README.md"
+search = "v{current_version}"
+replace = "v{new_version}"
