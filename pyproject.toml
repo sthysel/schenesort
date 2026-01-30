@@ -1,6 +1,6 @@
 [project]
 name = "schenesort"
-version = "0.0.2"
+version = "0.0.3"
 description = "Wallpaper collection management CLI tool"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -52,7 +52,7 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.bumpversion]
-current_version = "0.0.2"
+current_version = "0.0.3"
 commit = true
 tag = true
 
