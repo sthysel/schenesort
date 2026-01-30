@@ -1,0 +1,51 @@
+[project]
+name = "schenesort"
+version = "0.1.0"
+description = "Wallpaper collection management CLI tool"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "filetype>=1.2.0",
+    "typer>=0.21.1",
+]
+
+[project.scripts]
+schenesort = "schenesort.cli:app"
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.5.1",
+    "pytest>=9.0.2",
+    "ruff>=0.14.14",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/schenesort"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "UP",     # pyupgrade
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
