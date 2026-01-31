@@ -19,6 +19,38 @@ for prefix, uri in NAMESPACES.items():
     ET.register_namespace(prefix, uri)
 
 
+# Common screen resolutions for recommendations
+SCREEN_RESOLUTIONS = [
+    ("8K", 7680, 4320),
+    ("5K", 5120, 2880),
+    ("4K", 3840, 2160),
+    ("Ultrawide 4K", 5120, 2160),
+    ("Ultrawide 1440p", 3440, 1440),
+    ("1440p", 2560, 1440),
+    ("Ultrawide 1080p", 2560, 1080),
+    ("1080p", 1920, 1080),
+    ("720p", 1280, 720),
+]
+
+
+def get_recommended_screen(width: int, height: int) -> str:
+    """Determine the recommended screen size based on image dimensions."""
+    if width <= 0 or height <= 0:
+        return ""
+
+    # Find the largest screen this image can cover without upscaling
+    recommendations = []
+    for name, sw, sh in SCREEN_RESOLUTIONS:
+        if width >= sw and height >= sh:
+            recommendations.append(name)
+
+    if not recommendations:
+        return "below 720p"
+
+    # Return the best (first) match
+    return recommendations[0]
+
+
 @dataclass
 class ImageMetadata:
     """Metadata for a wallpaper image."""
@@ -33,6 +65,9 @@ class ImageMetadata:
     subject: str = ""
     source: str = ""
     ai_model: str = ""
+    width: int = 0
+    height: int = 0
+    recommended_screen: str = ""
 
     def is_empty(self) -> bool:
         return not any(
@@ -47,6 +82,8 @@ class ImageMetadata:
                 self.subject,
                 self.source,
                 self.ai_model,
+                self.width,
+                self.height,
             ]
         )
 
@@ -135,6 +172,26 @@ def read_xmp(image_path: Path) -> ImageMetadata:
         if scene_elem is not None and scene_elem.text:
             metadata.scene = scene_elem.text
 
+        # Read dimensions
+        width_elem = desc_elem.find("schenesort:width", NAMESPACES)
+        if width_elem is not None and width_elem.text:
+            try:
+                metadata.width = int(width_elem.text)
+            except ValueError:
+                pass
+
+        height_elem = desc_elem.find("schenesort:height", NAMESPACES)
+        if height_elem is not None and height_elem.text:
+            try:
+                metadata.height = int(height_elem.text)
+            except ValueError:
+                pass
+
+        # Read recommended screen
+        screen_elem = desc_elem.find("schenesort:recommended_screen", NAMESPACES)
+        if screen_elem is not None and screen_elem.text:
+            metadata.recommended_screen = screen_elem.text
+
         return metadata
 
     except Exception:
@@ -212,6 +269,20 @@ def write_xmp(image_path: Path, metadata: ImageMetadata) -> None:
     if metadata.scene:
         scene_elem = ET.SubElement(desc, f"{{{NAMESPACES['schenesort']}}}scene")
         scene_elem.text = metadata.scene
+
+    # Add dimensions
+    if metadata.width > 0:
+        width_elem = ET.SubElement(desc, f"{{{NAMESPACES['schenesort']}}}width")
+        width_elem.text = str(metadata.width)
+
+    if metadata.height > 0:
+        height_elem = ET.SubElement(desc, f"{{{NAMESPACES['schenesort']}}}height")
+        height_elem.text = str(metadata.height)
+
+    # Add recommended screen
+    if metadata.recommended_screen:
+        screen_elem = ET.SubElement(desc, f"{{{NAMESPACES['schenesort']}}}recommended_screen")
+        screen_elem.text = metadata.recommended_screen
 
     # Write to file
     tree = ET.ElementTree(root)

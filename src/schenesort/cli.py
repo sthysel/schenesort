@@ -9,7 +9,8 @@ import filetype
 import ollama
 import typer
 
-from schenesort.xmp import get_xmp_path, read_xmp, write_xmp
+from schenesort.config import load_config
+from schenesort.xmp import get_recommended_screen, get_xmp_path, read_xmp, write_xmp
 
 app = typer.Typer(
     name="schenesort",
@@ -20,7 +21,7 @@ app = typer.Typer(
 VALID_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
 
 
-def sanitize_filename(name: str) -> str:
+def sanitise_filename(name: str) -> str:
     """
     Sanitize filename to be Unix-friendly.
 
@@ -113,9 +114,20 @@ def validate_extension(filepath: Path) -> tuple[bool, str | None]:
     return current_ext == actual_type, actual_type
 
 
+def get_image_dimensions(filepath: Path) -> tuple[int, int]:
+    """Get image width and height using PIL."""
+    try:
+        from PIL import Image
+
+        with Image.open(filepath) as img:
+            return img.size  # (width, height)
+    except Exception:
+        return 0, 0
+
+
 @app.command()
-def sanitize(
-    path: Annotated[Path, typer.Argument(help="Directory or file to sanitize")],
+def sanitise(
+    path: Annotated[Path, typer.Argument(help="Directory or file to sanitise")],
     dry_run: Annotated[
         bool, typer.Option("--dry-run", "-n", help="Show what would be renamed")
     ] = False,
@@ -143,7 +155,7 @@ def sanitize(
             continue
 
         old_name = filepath.name
-        new_name = sanitize_filename(old_name)
+        new_name = sanitise_filename(old_name)
 
         if old_name != new_name:
             new_path = filepath.parent / new_name
@@ -282,6 +294,253 @@ def info(
 
 
 @app.command()
+def cleanup(
+    path: Annotated[Path, typer.Argument(help="Directory to clean up")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Show what would be deleted")
+    ] = False,
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = False,
+) -> None:
+    """Delete orphaned XMP sidecar files that have no corresponding image."""
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if not path.is_dir():
+        typer.echo(f"Error: Path '{path}' is not a directory.", err=True)
+        raise typer.Exit(1)
+
+    pattern = "**/*.xmp" if recursive else "*.xmp"
+    xmp_files = list(path.glob(pattern))
+
+    if not xmp_files:
+        typer.echo("No XMP sidecar files found.")
+        raise typer.Exit(0)
+
+    orphaned_count = 0
+    total_size = 0
+
+    for xmp_path in xmp_files:
+        # The image path is the XMP path without the .xmp suffix
+        # e.g., "image.jpg.xmp" -> "image.jpg"
+        image_path = xmp_path.parent / xmp_path.stem
+
+        if not image_path.exists():
+            size = xmp_path.stat().st_size
+            total_size += size
+
+            if dry_run:
+                typer.echo(f"Would delete: {xmp_path}")
+            else:
+                xmp_path.unlink()
+                typer.echo(f"Deleted: {xmp_path}")
+
+            orphaned_count += 1
+
+    if orphaned_count == 0:
+        typer.echo("No orphaned XMP sidecars found.")
+    else:
+        action = "Would delete" if dry_run else "Deleted"
+        size_kb = total_size / 1024
+        typer.echo(f"\n{action} {orphaned_count} orphaned sidecar(s) ({size_kb:.1f} KB).")
+
+
+@app.command()
+def index(
+    path: Annotated[Path, typer.Argument(help="Directory to index")],
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = True,
+    prune: Annotated[
+        bool, typer.Option("--prune", "-p", help="Remove entries for deleted files")
+    ] = False,
+    rebuild: Annotated[bool, typer.Option("--rebuild", help="Rebuild index from scratch")] = False,
+) -> None:
+    """Build or update the SQLite index of wallpaper metadata."""
+    from schenesort.db import WallpaperDB
+
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if not path.is_dir():
+        typer.echo(f"Error: Path '{path}' is not a directory.", err=True)
+        raise typer.Exit(1)
+
+    with WallpaperDB() as db:
+        if rebuild:
+            typer.echo("Rebuilding index from scratch...")
+            db.clear()
+
+        pattern = "**/*" if recursive else "*"
+        image_files = [
+            f
+            for f in path.glob(pattern)
+            if f.is_file() and f.suffix.lower() in VALID_IMAGE_EXTENSIONS
+        ]
+
+        typer.echo(f"Indexing {len(image_files)} image(s)...")
+
+        indexed = 0
+        for filepath in image_files:
+            xmp_path = get_xmp_path(filepath)
+            if xmp_path.exists():
+                metadata = read_xmp(filepath)
+                db.index_image(filepath, metadata)
+                indexed += 1
+
+        db.commit()
+
+        if prune:
+            valid_paths = {str(f) for f in image_files}
+            pruned = db.prune(valid_paths)
+            if pruned:
+                typer.echo(f"Pruned {pruned} removed file(s) from index.")
+
+        typer.echo(f"Indexed {indexed} wallpaper(s) with metadata.")
+
+        # Show stats
+        stats = db.stats()
+        typer.echo(f"\nDatabase: {db.db_path}")
+        typer.echo(f"Total indexed: {stats.get('total_wallpapers', 0)}")
+        typer.echo(f"With metadata: {stats.get('with_metadata', 0)}")
+
+
+@app.command()
+def get(
+    tag: Annotated[str | None, typer.Option("--tag", "-t", help="Filter by tag")] = None,
+    mood: Annotated[str | None, typer.Option("--mood", "-m", help="Filter by mood")] = None,
+    color: Annotated[str | None, typer.Option("--color", "-c", help="Filter by color")] = None,
+    style: Annotated[str | None, typer.Option("--style", "-s", help="Filter by style")] = None,
+    subject: Annotated[str | None, typer.Option("--subject", help="Filter by subject")] = None,
+    time: Annotated[str | None, typer.Option("--time", help="Filter by time of day")] = None,
+    screen: Annotated[
+        str | None, typer.Option("--screen", help="Filter by recommended screen (4K, 1440p, etc)")
+    ] = None,
+    min_width: Annotated[
+        int | None, typer.Option("--min-width", help="Minimum width in pixels")
+    ] = None,
+    min_height: Annotated[
+        int | None, typer.Option("--min-height", help="Minimum height in pixels")
+    ] = None,
+    search: Annotated[
+        str | None, typer.Option("--search", "-q", help="Search description, scene, style, subject")
+    ] = None,
+    limit: Annotated[
+        int | None, typer.Option("--limit", "-n", help="Maximum number of results")
+    ] = None,
+    random: Annotated[
+        bool, typer.Option("--random", "-R", help="Return results in random order")
+    ] = False,
+    one: Annotated[
+        bool, typer.Option("--one", "-1", help="Return single random result (shortcut for -R -n1)")
+    ] = False,
+    paths_only: Annotated[
+        bool, typer.Option("--paths-only", "-p", help="Output only file paths (for scripting)")
+    ] = False,
+) -> None:
+    """Query wallpapers by metadata attributes."""
+    from schenesort.db import WallpaperDB
+
+    if one:
+        random = True
+        limit = 1
+
+    with WallpaperDB() as db:
+        results = db.query(
+            tag=tag,
+            mood=mood,
+            color=color,
+            style=style,
+            subject=subject,
+            time_of_day=time,
+            screen=screen,
+            min_width=min_width,
+            min_height=min_height,
+            search=search,
+            limit=limit,
+            random=random,
+        )
+
+        if not results:
+            typer.echo("No wallpapers found matching criteria.", err=True)
+            raise typer.Exit(1)
+
+        if paths_only:
+            for r in results:
+                typer.echo(r["path"])
+        else:
+            typer.echo(f"Found {len(results)} wallpaper(s):\n")
+            for r in results:
+                typer.echo(f"{r['path']}")
+                if r.get("description"):
+                    typer.echo(f"  {r['description']}")
+                details = []
+                if r.get("style"):
+                    details.append(r["style"])
+                if r.get("subject"):
+                    details.append(r["subject"])
+                if r.get("recommended_screen"):
+                    details.append(r["recommended_screen"])
+                if details:
+                    typer.echo(f"  [{', '.join(details)}]")
+                typer.echo()
+
+
+@app.command()
+def stats() -> None:
+    """Show statistics about the indexed wallpaper collection."""
+    from schenesort.db import WallpaperDB
+
+    with WallpaperDB() as db:
+        s = db.stats()
+
+        if not s.get("total_wallpapers"):
+            typer.echo("No wallpapers indexed. Run 'schenesort index <path>' first.")
+            raise typer.Exit(1)
+
+        typer.echo(f"Database: {db.db_path}\n")
+        typer.echo(f"Total wallpapers: {s['total_wallpapers']}")
+        typer.echo(f"With metadata: {s['with_metadata']}")
+
+        if s.get("by_screen"):
+            typer.echo("\nBy screen size:")
+            for screen, count in s["by_screen"].items():
+                typer.echo(f"  {screen}: {count}")
+
+        if s.get("by_style"):
+            typer.echo("\nBy style:")
+            for style, count in s["by_style"].items():
+                typer.echo(f"  {style}: {count}")
+
+        if s.get("by_subject"):
+            typer.echo("\nBy subject:")
+            for subject, count in s["by_subject"].items():
+                typer.echo(f"  {subject}: {count}")
+
+        if s.get("top_tags"):
+            typer.echo("\nTop tags:")
+            for tag, count in list(s["top_tags"].items())[:10]:
+                typer.echo(f"  {tag}: {count}")
+
+        if s.get("top_moods"):
+            typer.echo("\nTop moods:")
+            for mood, count in s["top_moods"].items():
+                typer.echo(f"  {mood}: {count}")
+
+        if s.get("top_colors"):
+            typer.echo("\nTop colors:")
+            for color, count in s["top_colors"].items():
+                typer.echo(f"  {color}: {count}")
+
+
+@app.command()
 def browse(
     path: Annotated[Path, typer.Argument(help="Directory or file to browse")],
     recursive: Annotated[
@@ -301,7 +560,47 @@ def browse(
     app_instance.run()
 
 
+@app.command()
+def config(
+    create: Annotated[
+        bool, typer.Option("--create", "-c", help="Create default config file if missing")
+    ] = False,
+) -> None:
+    """Show or create the configuration file."""
+    from schenesort.config import create_default_config, get_config_path
+
+    config_path = get_config_path()
+
+    if create:
+        path = create_default_config()
+        if path.exists():
+            typer.echo(f"Config file: {path}")
+            if path == config_path:
+                typer.echo("(already existed)" if not create else "(created)")
+    else:
+        typer.echo(f"Config file: {config_path}")
+        if config_path.exists():
+            typer.echo("\nCurrent settings:")
+            cfg = load_config()
+            typer.echo(f"  ollama.host: {cfg.ollama_host or '(default: localhost:11434)'}")
+            typer.echo(f"  ollama.model: {cfg.ollama_model}")
+            if cfg.wallpaper_path:
+                typer.echo(f"  paths.wallpaper: {cfg.wallpaper_path}")
+        else:
+            typer.echo("(file does not exist, use --create to create)")
+
+
 DEFAULT_MODEL = "llava"
+
+
+def get_ollama_settings(
+    host: str | None = None, model: str | None = None
+) -> tuple[str | None, str]:
+    """Get Ollama host and model, using config defaults if not specified."""
+    config = load_config()
+    effective_host = host if host is not None else (config.ollama_host or None)
+    effective_model = model if model is not None else config.ollama_model
+    return effective_host, effective_model
 
 
 @app.command()
@@ -312,15 +611,16 @@ def models(
     ] = None,
 ) -> None:
     """List available models on the Ollama server."""
+    effective_host, _ = get_ollama_settings(host=host)
     try:
-        client = ollama.Client(host=host) if host else ollama
+        client = ollama.Client(host=effective_host) if effective_host else ollama
         response = client.list()
 
         if not response.models:
             typer.echo("No models found.")
             raise typer.Exit(0)
 
-        server_info = host or "localhost:11434"
+        server_info = effective_host or "localhost:11434"
         typer.echo(f"Models on {server_info}:\n")
 
         for model in response.models:
@@ -471,8 +771,8 @@ def describe(
         bool, typer.Option("--recursive", "-r", help="Process directories recursively")
     ] = False,
     model: Annotated[
-        str, typer.Option("--model", "-m", help="Ollama vision model to use")
-    ] = DEFAULT_MODEL,
+        str | None, typer.Option("--model", "-m", help="Ollama vision model to use")
+    ] = None,
     cpu: Annotated[bool, typer.Option("--cpu", help="Use CPU only (no GPU acceleration)")] = False,
     host: Annotated[
         str | None,
@@ -480,6 +780,8 @@ def describe(
     ] = None,
 ) -> None:
     """Rename images based on AI-generated descriptions using Ollama."""
+    effective_host, effective_model = get_ollama_settings(host=host, model=model)
+
     path = path.resolve()
 
     if not path.exists():
@@ -499,7 +801,7 @@ def describe(
         typer.echo("No image files found.")
         raise typer.Exit(0)
 
-    typer.echo(f"Processing {len(image_files)} image(s) with model '{model}'...\n")
+    typer.echo(f"Processing {len(image_files)} image(s) with model '{effective_model}'...\n")
 
     renamed_count = 0
     skipped_count = 0
@@ -507,14 +809,14 @@ def describe(
     for filepath in image_files:
         typer.echo(f"Analyzing: {filepath.name}...", nl=False)
 
-        description = describe_image(filepath, model, use_cpu=cpu, host=host)
+        description = describe_image(filepath, effective_model, use_cpu=cpu, host=effective_host)
         if not description:
             typer.echo(" [FAILED]")
             skipped_count += 1
             continue
 
         # Create new filename from description
-        new_stem = sanitize_filename(description)
+        new_stem = sanitise_filename(description)
         new_name = new_stem + filepath.suffix.lower()
 
         typer.echo(f" -> {description}")
@@ -535,13 +837,27 @@ def describe(
         if dry_run:
             typer.echo(f"  Would rename: {filepath.name} -> {new_name}")
         else:
+            # Rename any existing XMP sidecar first
+            old_xmp = get_xmp_path(filepath)
+            if old_xmp.exists():
+                new_xmp = get_xmp_path(new_path)
+                old_xmp.rename(new_xmp)
+
             filepath.rename(new_path)
             typer.echo(f"  Renamed: {filepath.name} -> {new_name}")
 
             # Save description to XMP sidecar
             metadata = read_xmp(new_path)
             metadata.description = description
-            metadata.ai_model = model
+            metadata.ai_model = effective_model
+
+            # Add image dimensions
+            width, height = get_image_dimensions(new_path)
+            if width and height:
+                metadata.width = width
+                metadata.height = height
+                metadata.recommended_screen = get_recommended_screen(width, height)
+
             write_xmp(new_path, metadata)
             typer.echo(f"  Saved metadata to {get_xmp_path(new_path).name}")
         renamed_count += 1
@@ -607,6 +923,10 @@ def metadata_show(
                 typer.echo(f"  Time: {metadata.time_of_day}")
             if metadata.subject:
                 typer.echo(f"  Subject: {metadata.subject}")
+            if metadata.width and metadata.height:
+                typer.echo(f"  Dimensions: {metadata.width} x {metadata.height}")
+                if metadata.recommended_screen:
+                    typer.echo(f"  Best for: {metadata.recommended_screen}")
             if metadata.source:
                 typer.echo(f"  Source: {metadata.source}")
             if metadata.ai_model:
@@ -678,8 +998,8 @@ def metadata_generate(
         bool, typer.Option("--recursive", "-r", help="Process directories recursively")
     ] = False,
     model: Annotated[
-        str, typer.Option("--model", "-m", help="Ollama vision model to use")
-    ] = DEFAULT_MODEL,
+        str | None, typer.Option("--model", "-m", help="Ollama vision model to use")
+    ] = None,
     overwrite: Annotated[
         bool, typer.Option("--overwrite", help="Overwrite existing descriptions")
     ] = False,
@@ -693,6 +1013,8 @@ def metadata_generate(
     ] = None,
 ) -> None:
     """Generate metadata using AI vision model and optionally rename files."""
+    effective_host, effective_model = get_ollama_settings(host=host, model=model)
+
     path = path.resolve()
 
     if not path.exists():
@@ -711,7 +1033,7 @@ def metadata_generate(
         typer.echo("No image files found.")
         raise typer.Exit(0)
 
-    typer.echo(f"Generating metadata for {len(image_files)} image(s) with '{model}'...\n")
+    typer.echo(f"Generating metadata for {len(image_files)} image(s) with '{effective_model}'...\n")
 
     generated_count = 0
     skipped_count = 0
@@ -726,7 +1048,7 @@ def metadata_generate(
 
         typer.echo(f"Analyzing: {filepath.name}...", nl=False)
 
-        result = analyze_image(filepath, model, use_cpu=cpu, host=host)
+        result = analyze_image(filepath, effective_model, use_cpu=cpu, host=effective_host)
         if not result:
             typer.echo(" [FAILED]")
             skipped_count += 1
@@ -737,7 +1059,7 @@ def metadata_generate(
 
         if dry_run:
             if rename:
-                new_stem = sanitize_filename(str(description))
+                new_stem = sanitise_filename(str(description))
                 new_name = new_stem + filepath.suffix.lower()
                 typer.echo(f"  Would rename: {filepath.name} -> {new_name}")
             if result.get("scene"):
@@ -759,7 +1081,7 @@ def metadata_generate(
             # Rename file if requested
             target_path = filepath
             if rename:
-                new_stem = sanitize_filename(str(description))
+                new_stem = sanitise_filename(str(description))
                 new_name = new_stem + filepath.suffix.lower()
 
                 if filepath.name != new_name:
@@ -772,6 +1094,12 @@ def metadata_generate(
                         new_path = filepath.parent / new_name
                         counter += 1
 
+                    # Rename any existing XMP sidecar first
+                    old_xmp = get_xmp_path(filepath)
+                    if old_xmp.exists():
+                        new_xmp = get_xmp_path(new_path)
+                        old_xmp.rename(new_xmp)
+
                     filepath.rename(new_path)
                     target_path = new_path
                     typer.echo(f"  Renamed: {filepath.name} -> {new_name}")
@@ -779,7 +1107,7 @@ def metadata_generate(
             # Build and save metadata
             metadata = existing
             metadata.description = str(description)
-            metadata.ai_model = model
+            metadata.ai_model = effective_model
             if isinstance(result.get("scene"), str):
                 metadata.scene = result["scene"]
             if isinstance(result.get("tags"), list):
@@ -794,6 +1122,14 @@ def metadata_generate(
                 metadata.time_of_day = result["time"]
             if isinstance(result.get("subject"), str):
                 metadata.subject = result["subject"]
+
+            # Add image dimensions
+            width, height = get_image_dimensions(target_path)
+            if width and height:
+                metadata.width = width
+                metadata.height = height
+                metadata.recommended_screen = get_recommended_screen(width, height)
+
             write_xmp(target_path, metadata)
             typer.echo(f"  Saved to {get_xmp_path(target_path).name}")
 
@@ -801,6 +1137,69 @@ def metadata_generate(
 
     action = "Would generate" if dry_run else "Generated"
     typer.echo(f"\n{action} metadata for {generated_count} file(s), skipped {skipped_count}.")
+
+
+@metadata_app.command("update-dimensions")
+def metadata_update_dimensions(
+    path: Annotated[Path, typer.Argument(help="Image file or directory")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Show what would be updated")
+    ] = False,
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = False,
+) -> None:
+    """Update existing XMP sidecars with image dimensions (no AI inference)."""
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if path.is_file():
+        files = [path]
+    else:
+        pattern = "**/*" if recursive else "*"
+        files = [f for f in path.glob(pattern) if f.is_file()]
+
+    # Filter to image files that have existing sidecars
+    image_files = [
+        f for f in files if f.suffix.lower() in VALID_IMAGE_EXTENSIONS and get_xmp_path(f).exists()
+    ]
+
+    if not image_files:
+        typer.echo("No image files with existing XMP sidecars found.")
+        raise typer.Exit(0)
+
+    typer.echo(f"Updating dimensions for {len(image_files)} image(s)...\n")
+
+    updated_count = 0
+    skipped_count = 0
+
+    for filepath in image_files:
+        width, height = get_image_dimensions(filepath)
+
+        if not width or not height:
+            typer.echo(f"Skipping: {filepath.name} (could not read dimensions)")
+            skipped_count += 1
+            continue
+
+        recommended = get_recommended_screen(width, height)
+
+        if dry_run:
+            typer.echo(f"Would update: {filepath.name} -> {width}x{height} ({recommended})")
+        else:
+            metadata = read_xmp(filepath)
+            metadata.width = width
+            metadata.height = height
+            metadata.recommended_screen = recommended
+            write_xmp(filepath, metadata)
+            typer.echo(f"Updated: {filepath.name} -> {width}x{height} ({recommended})")
+
+        updated_count += 1
+
+    action = "Would update" if dry_run else "Updated"
+    typer.echo(f"\n{action} {updated_count} sidecar(s), skipped {skipped_count}.")
 
 
 @metadata_app.command("embed")

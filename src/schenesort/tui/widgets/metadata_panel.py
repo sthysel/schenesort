@@ -138,6 +138,14 @@ class MetadataPanel(VerticalScroll):
             lines.append("[dim]Subject[/dim]")
             lines.append(f"  {self._metadata.subject}")
 
+        # Dimensions
+        if self._metadata.width and self._metadata.height:
+            lines.append("")
+            lines.append("[dim]Dimensions[/dim]")
+            lines.append(f"  {self._metadata.width} x {self._metadata.height}")
+            if self._metadata.recommended_screen:
+                lines.append(f"  [green]Best for: {self._metadata.recommended_screen}[/green]")
+
         # Source
         if self._metadata.source:
             lines.append("")

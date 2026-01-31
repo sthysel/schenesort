@@ -1,6 +1,6 @@
 # Schenesort v1.0.0
 
-A CLI tool for managing wallpaper collections.
+A CLI tool for managing wallpaper collections with AI-powered metadata, terminal UI browsing, and fast SQLite-based querying.
 
 ## Installation
 
@@ -8,162 +8,271 @@ A CLI tool for managing wallpaper collections.
 uv sync
 ```
 
-## Usage
+## Quick Start
 
 ```bash
-# Show collection info
-schenesort info ~/wallpapers
+# Generate AI metadata for images
+schenesort metadata generate ~/wallpapers -r
 
-# Sanitize filenames (preview)
-schenesort sanitize ~/wallpapers --dry-run
+# Browse with TUI
+schenesort browse ~/wallpapers
 
-# Sanitize filenames
-schenesort sanitize ~/wallpapers -r
+# Index the collection
+schenesort index ~/wallpapers
 
-# Validate image extensions
-schenesort validate ~/wallpapers --fix
-
-# AI-powered renaming (requires Ollama with a vision model)
-schenesort describe ~/wallpapers --dry-run
-schenesort describe ~/wallpapers -m llava:13b
+# Query wallpapers
+schenesort get --mood peaceful --screen 4K
+schenesort get -1 -p | xargs feh  # random wallpaper
 ```
 
 ## Commands
 
-| Command    | Description                               |
-|------------|-------------------------------------------|
-| `sanitize` | Rename files to Unix-friendly format      |
-| `validate` | Check image extensions match file content |
-| `info`     | Show collection statistics                |
-| `describe` | AI-rename images based on content (Ollama)|
-| `metadata show` | Display XMP sidecar metadata         |
-| `metadata set` | Manually set metadata fields          |
-| `metadata generate` | Generate metadata with AI (Ollama) |
-| `metadata embed` | Embed sidecar data into image files  |
+| Command                      | Description                                         |
+|------------------------------|-----------------------------------------------------|
+| `browse`                     | Terminal UI browser with image preview and metadata |
+| `index`                      | Build SQLite index for fast querying                |
+| `get`                        | Query wallpapers by metadata attributes             |
+| `stats`                      | Show collection statistics from index               |
+| `config`                     | Show or create configuration file                   |
+| `sanitise`                   | Rename files to Unix-friendly format                |
+| `validate`                   | Check image extensions match file content           |
+| `cleanup`                    | Delete orphaned XMP sidecars                        |
+| `info`                       | Show collection file statistics                     |
+| `describe`                   | AI-rename images based on content (Ollama)          |
+| `models`                     | List available Ollama models                        |
+| `metadata show`              | Display XMP sidecar metadata                        |
+| `metadata set`               | Manually set metadata fields                        |
+| `metadata generate`          | Generate metadata with AI (Ollama)                  |
+| `metadata update-dimensions` | Add image dimensions to existing sidecars           |
+| `metadata embed`             | Embed sidecar data into image files                 |
 
-## Filename Sanitization Rules
+## Terminal UI Browser
 
-The `sanitize` command applies these rules to make filenames Unix-friendly:
-
-| Rule                        | Example                              |
-|-----------------------------|--------------------------------------|
-| Lowercase                   | `HelloWorld.JPG` → `helloworld.jpg`  |
-| Spaces → underscore         | `my file.jpg` → `my_file.jpg`        |
-| Remove punctuation          | `file(1)!.jpg` → `file1.jpg`         |
-| Collapse underscores        | `a___b.jpg` → `a_b.jpg`              |
-| Collapse hyphens            | `a---b.jpg` → `a-b.jpg`              |
-| Strip leading/trailing `_-` | `_file_.jpg` → `file.jpg`            |
-| Remove dots in stem         | `file.backup.jpg` → `filebackup.jpg` |
-| Preserve hidden files       | `.hidden` → `.hidden`                |
-| Empty stem fallback         | `!@#$.jpg` → `unnamed.jpg`           |
-
-**Preserved characters:** alphanumeric, underscore, hyphen, extension dot, unicode letters
-
-## Local model renaming
-
-The `describe` command uses Ollama with a vision model to analyze images and generate descriptive filenames.
-
-### Ollama Setup (Arch Linux)
+Browse your wallpaper collection with image preview and metadata display:
 
 ```bash
-# Install from AUR (CPU only)
-yay -S ollama
-
-# For NVIDIA GPU support, also install:
-yay -S ollama-cuda
-
-# Enable and start the service
-sudo systemctl enable ollama
-sudo systemctl start ollama
-
-# Pull a vision model
-ollama pull llava           # Default, ~4GB
-ollama pull llava:13b       # Larger/better, ~8GB
-
-# Verify it works
-ollama run llava "hello"
-
-# Verify GPU is being used
-ollama ps
-# Should show "100% GPU" not "100% CPU"
+schenesort browse ~/wallpapers
+schenesort browse ~/wallpapers -r  # recursive
 ```
 
-**Note:** On Arch, you need **both** `ollama` and `ollama-cuda` packages for GPU acceleration. The `ollama-cuda` package provides the CUDA library that the base `ollama` package loads at runtime. After installing `ollama-cuda`, restart the service:
+**Keyboard shortcuts:**
+| Key          | Action         |
+|--------------|----------------|
+| `j` / `Down` | Next image     |
+| `k` / `Up`   | Previous image |
+| `g` / `Home` | First image    |
+| `G` / `End`  | Last image     |
+| `+` / `-`    | Zoom in/out    |
+| `q`          | Quit           |
+
+The TUI uses textual-image for rendering, which auto-detects terminal graphics support (Sixel, iTerm2, Kitty).
+
+## Collection Indexing and Querying
+
+Build a SQLite index for fast querying across your entire collection:
 
 ```bash
-sudo systemctl restart ollama
+# Build/update the index
+schenesort index ~/wallpapers
+schenesort index ~/wallpapers --rebuild   # rebuild from scratch
+schenesort index ~/wallpapers --prune     # remove deleted files
+
+# Query wallpapers
+schenesort get --tag cyberpunk
+schenesort get --mood peaceful --style photography
+schenesort get --screen 4K --subject landscape
+schenesort get --color blue --time sunset
+schenesort get --min-width 3840
+schenesort get -q "mountain"              # text search
+
+# Random selection
+schenesort get --random -n 10             # 10 random wallpapers
+schenesort get -1                         # single random wallpaper
+schenesort get -1 --mood dramatic         # random with filter
+
+# For scripting (paths only)
+schenesort get -1 -p                      # just the path
+feh $(schenesort get -1 -p)               # set random wallpaper
+hyprctl hyprpaper wallpaper "eDP-1,$(schenesort get -1 -p)"
+
+# View collection stats
+schenesort stats
 ```
 
-**Known Issue:** There's a CUDA bug where API-based image processing crashes while interactive mode works. If you see "model runner has unexpectedly stopped" errors, workarounds:
-
-```bash
-# Option 1: Prefix schenesort commands (temporary)
-CUDA_VISIBLE_DEVICES="" schenesort describe ~/wallpapers
-
-# Option 2: Run Ollama in CPU mode (permanent)
-sudo systemctl edit ollama
-# Add: Environment="CUDA_VISIBLE_DEVICES="
-sudo systemctl daemon-reload && sudo systemctl restart ollama
-```
-
-See [ollama-setup.md](ollama-setup.md) for details.
-
-### Usage
-
-```bash
-# Preview what would be renamed
-schenesort describe ~/wallpapers --dry-run
-
-# Rename with a specific model
-schenesort describe ~/wallpapers -m llava:13b
-
-# Process subdirectories
-schenesort describe ~/wallpapers -r
-```
-
-The generated description is automatically sanitized to create Unix-friendly filenames.
+The database is stored at `~/.local/share/schenesort/index.db`.
 
 ## Metadata Management
 
 Store metadata in XMP sidecar files (`.xmp`) alongside images without modifying the original files.
 
+### Metadata Fields
+
+| Field                | Description                                              |
+|----------------------|----------------------------------------------------------|
+| `description`        | Short description (used for filenames)                   |
+| `scene`              | Detailed scene description                               |
+| `tags`               | Keywords/tags                                            |
+| `mood`               | Visual mood (peaceful, dramatic, mysterious, etc.)       |
+| `style`              | Art style (photography, digital art, illustration, etc.) |
+| `colors`             | Dominant colors                                          |
+| `time_of_day`        | Time depicted (day, night, sunset, etc.)                 |
+| `subject`            | Primary subject (landscape, urban, nature, etc.)         |
+| `width` / `height`   | Image dimensions in pixels                               |
+| `recommended_screen` | Best screen size (4K, 1440p, 1080p, etc.)                |
+| `source`             | Source URL or info                                       |
+| `ai_model`           | Model used for metadata generation                       |
+
+### Generate Metadata with AI
+
 ```bash
-# Show metadata for images
-schenesort metadata show ~/wallpapers
+# Preview what would be generated
+schenesort metadata generate ~/wallpapers --dry-run
+
+# Generate metadata and rename files
+schenesort metadata generate ~/wallpapers -m llava
+
+# Generate without renaming
+schenesort metadata generate ~/wallpapers --no-rename
+
+# Overwrite existing metadata
+schenesort metadata generate ~/wallpapers --overwrite
+
+# Use remote Ollama server
+schenesort metadata generate ~/wallpapers --host http://server:11434
+```
+
+### Update Dimensions Only
+
+Add dimensions to existing sidecars without re-running AI inference:
+
+```bash
+schenesort metadata update-dimensions ~/wallpapers -r
+```
+
+### Manual Metadata
+
+```bash
+# Show metadata
 schenesort metadata show image.jpg
 
-# Set metadata manually
+# Set fields manually
 schenesort metadata set image.jpg -d "Mountain sunset landscape"
 schenesort metadata set image.jpg -t "nature,sunset,mountains"
 schenesort metadata set image.jpg -a "peaceful"  # add tag
 schenesort metadata set image.jpg -s "https://unsplash.com/..."
-
-# Generate metadata with AI
-schenesort metadata generate ~/wallpapers --dry-run
-schenesort metadata generate ~/wallpapers -m llava
-schenesort metadata generate ~/wallpapers --overwrite  # replace existing
-
-# Generate using remote Ollama server
-schenesort metadata generate ~/wallpaper --host http://promaxgb10-6dbe:11434 --model llava:13b --overwrite
 ```
 
-### Re-inference Behavior
+### Embed into Image Files
 
-When running `metadata generate`, existing descriptions are preserved by default:
+Write metadata directly into images (requires `exiftool`):
 
-| Sidecar exists? | Description populated? | Will re-inference? | Will rename? |
-|-----------------|------------------------|--------------------|--------------|
-| No              | N/A                    | Yes                | Yes          |
-| Yes             | No/empty               | Yes                | Yes          |
-| Yes             | Yes                    | No (skipped)       | No           |
+```bash
+schenesort metadata embed ~/wallpapers -r
+```
 
-By default, files are renamed based on the AI-generated description. The sidecar follows the image (e.g., `mountain.jpg` → `sunset_over_peaks.jpg` with `sunset_over_peaks.jpg.xmp`).
+## Filename Sanitation
 
-Options:
-- `--overwrite` - force re-inference for all images regardless of existing metadata
-- `--no-rename` - generate metadata only, keep original filenames
+The `sanitise` command makes filenames Unix-friendly:
 
-### XMP Sidecar Format
+```bash
+schenesort sanitise ~/wallpapers --dry-run
+schenesort sanitise ~/wallpapers -r
+```
+
+| Rule                        | Example                             |
+|-----------------------------|-------------------------------------|
+| Lowercase                   | `HelloWorld.JPG` → `helloworld.jpg` |
+| Spaces → underscore         | `my file.jpg` → `my_file.jpg`       |
+| Remove punctuation          | `file(1)!.jpg` → `file1.jpg`        |
+| Collapse underscores        | `a___b.jpg` → `a_b.jpg`             |
+| Strip leading/trailing `_-` | `_file_.jpg` → `file.jpg`           |
+
+## Cleanup Orphaned Sidecars
+
+Delete XMP sidecar files that have no corresponding image:
+
+```bash
+schenesort cleanup ~/wallpapers --dry-run
+schenesort cleanup ~/wallpapers -r
+```
+
+## Configuration
+
+Schenesort uses a config file at `~/.config/schenesort/config.toml` (follows XDG):
+
+```bash
+# Show current config
+schenesort config
+
+# Create default config file
+schenesort config --create
+```
+
+Config file format:
+
+```toml
+[ollama]
+# Ollama server URL (leave empty for localhost:11434)
+host = "http://server:11434"
+
+# Default vision model
+model = "llava:13b"
+
+[paths]
+# Default wallpaper collection path
+wallpaper = "~/wallpapers"
+```
+
+Command-line options override config file settings.
+
+## Ollama Setup (Arch Linux)
+
+```bash
+# Install
+yay -S ollama ollama-cuda  # for NVIDIA GPU
+
+# Start service
+sudo systemctl enable --now ollama
+
+# Pull a vision model
+ollama pull llava           # ~4GB
+ollama pull llava:13b       # ~8GB, better quality
+
+# List available models
+schenesort models
+```
+
+## Yazi Plugin
+
+A [Yazi](https://yazi-rs.github.io/) previewer plugin that displays XMP metadata alongside image previews.
+
+### Installation
+
+```bash
+# Copy plugin
+mkdir -p ~/.config/yazi/plugins/schenesort.yazi
+cp schenesort.yazi/main.lua ~/.config/yazi/plugins/schenesort.yazi/
+
+# Install exiftool config for custom namespace
+mkdir -p ~/.config/ExifTool
+cp schenesort.yazi/schenesort.config ~/.config/ExifTool/
+
+# Install exiftool
+sudo pacman -S perl-image-exiftool  # Arch
+```
+
+Add to `~/.config/yazi/yazi.toml`:
+
+```toml
+[plugin]
+prepend_previewers = [
+    { mime = "image/*", run = "schenesort" },
+]
+```
+
+See [schenesort.yazi/README.md](schenesort.yazi/README.md) for details.
+
+## XMP Sidecar Format
 
 ```
 ~/wallpapers/
@@ -173,29 +282,21 @@ Options:
 └── cyberpunk_city.png.xmp
 ```
 
-Metadata is stored in standard XMP format, compatible with photo managers like digiKam, darktable, and Lightroom.
+Metadata is stored in standard XMP format, compatible with digiKam, darktable, and Lightroom.
 
-### Embedding Metadata into Image Files
+## Screen Size Recommendations
 
-Use `metadata embed` to write sidecar metadata directly into image files (requires `exiftool`):
+Images are tagged with recommended screen sizes based on resolution:
 
-```bash
-# Preview what would be embedded
-schenesort metadata embed ~/wallpapers --dry-run
+| Screen | Resolution |
+|--------|------------|
+| 8K | 7680x4320 |
+| 5K | 5120x2880 |
+| 4K | 3840x2160 |
+| Ultrawide 4K | 5120x2160 |
+| Ultrawide 1440p | 3440x1440 |
+| 1440p | 2560x1440 |
+| 1080p | 1920x1080 |
+| 720p | 1280x720 |
 
-# Embed metadata into images
-schenesort metadata embed ~/wallpapers
-
-# Process recursively
-schenesort metadata embed ~/wallpapers -r
-```
-
-This writes to standard IPTC/XMP fields that photo managers understand:
-
-| Sidecar Field | Embedded As |
-|---------------|-------------|
-| description + scene | IPTC:Caption-Abstract, XMP:Description |
-| tags | IPTC:Keywords, XMP:Subject |
-| mood, style, colors, time, subject | Sidecar only (no standard field) |
-
-The sidecar remains the source of truth for all fields; embedding copies compatible fields into the image for broader tool compatibility.
+An image is recommended for a screen size if it can cover the screen without upscaling.

@@ -40,6 +40,9 @@ local function parse_xmp(xmp_path)
         .. "-XMP-schenesort:TimeOfDay "
         .. "-XMP-schenesort:Subject "
         .. "-XMP-schenesort:AiModel "
+        .. "-XMP-schenesort:Width "
+        .. "-XMP-schenesort:Height "
+        .. "-XMP-schenesort:RecommendedScreen "
         .. "'" .. xmp_path .. "' 2>/dev/null"
 
     local handle = io.popen(cmd)
@@ -57,7 +60,10 @@ local function parse_xmp(xmp_path)
     end
 
     -- Map to fields (order matches exiftool arguments)
-    local fields = {"description", "scene", "tags", "mood", "style", "colors", "time_of_day", "subject", "ai_model"}
+    local fields = {
+        "description", "scene", "tags", "mood", "style", "colors",
+        "time_of_day", "subject", "ai_model", "width", "height", "recommended_screen"
+    }
     for i, field in ipairs(fields) do
         if lines[i] and lines[i] ~= "" then
             metadata[field] = lines[i]
@@ -116,6 +122,15 @@ local function format_metadata(metadata)
     if metadata.subject then
         table.insert(lines, { " Subject ", "white" })
         table.insert(lines, { metadata.subject, "white" })
+        table.insert(lines, { "", "" })
+    end
+
+    if metadata.width and metadata.height then
+        table.insert(lines, { " Size ", "cyan" })
+        table.insert(lines, { metadata.width .. " x " .. metadata.height, "white" })
+        if metadata.recommended_screen then
+            table.insert(lines, { "Best for: " .. metadata.recommended_screen, "green" })
+        end
         table.insert(lines, { "", "" })
     end
 
