@@ -165,3 +165,10 @@ class TestSanitizeFilename:
 
     def test_hyphen_underscore_sequence(self):
         assert sanitize_filename("a-_-b.jpg") == "a_b.jpg"
+
+    # Trailing dot (AI descriptions often end with a period)
+    def test_trailing_dot_stripped(self):
+        assert sanitize_filename("a description.") == "a_description"
+
+    def test_trailing_dot_with_extension(self):
+        assert sanitize_filename("a description..jpg") == "a_description.jpg"

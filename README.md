@@ -36,7 +36,10 @@ schenesort describe ~/wallpapers -m llava:13b
 | `validate` | Check image extensions match file content |
 | `info`     | Show collection statistics                |
 | `describe` | AI-rename images based on content (Ollama)|
-| `metadata` | Manage XMP sidecar metadata               |
+| `metadata show` | Display XMP sidecar metadata         |
+| `metadata set` | Manually set metadata fields          |
+| `metadata generate` | Generate metadata with AI (Ollama) |
+| `metadata embed` | Embed sidecar data into image files  |
 
 ## Filename Sanitization Rules
 
@@ -56,7 +59,7 @@ The `sanitize` command applies these rules to make filenames Unix-friendly:
 
 **Preserved characters:** alphanumeric, underscore, hyphen, extension dot, unicode letters
 
-## AI-Powered Renaming
+## Local model renaming
 
 The `describe` command uses Ollama with a vision model to analyze images and generate descriptive filenames.
 
@@ -139,7 +142,26 @@ schenesort metadata set image.jpg -s "https://unsplash.com/..."
 schenesort metadata generate ~/wallpapers --dry-run
 schenesort metadata generate ~/wallpapers -m llava
 schenesort metadata generate ~/wallpapers --overwrite  # replace existing
+
+# Generate using remote Ollama server
+schenesort metadata generate ~/wallpaper --host http://promaxgb10-6dbe:11434 --model llava:13b --overwrite
 ```
+
+### Re-inference Behavior
+
+When running `metadata generate`, existing descriptions are preserved by default:
+
+| Sidecar exists? | Description populated? | Will re-inference? | Will rename? |
+|-----------------|------------------------|--------------------|--------------|
+| No              | N/A                    | Yes                | Yes          |
+| Yes             | No/empty               | Yes                | Yes          |
+| Yes             | Yes                    | No (skipped)       | No           |
+
+By default, files are renamed based on the AI-generated description. The sidecar follows the image (e.g., `mountain.jpg` → `sunset_over_peaks.jpg` with `sunset_over_peaks.jpg.xmp`).
+
+Options:
+- `--overwrite` - force re-inference for all images regardless of existing metadata
+- `--no-rename` - generate metadata only, keep original filenames
 
 ### XMP Sidecar Format
 
@@ -152,3 +174,28 @@ schenesort metadata generate ~/wallpapers --overwrite  # replace existing
 ```
 
 Metadata is stored in standard XMP format, compatible with photo managers like digiKam, darktable, and Lightroom.
+
+### Embedding Metadata into Image Files
+
+Use `metadata embed` to write sidecar metadata directly into image files (requires `exiftool`):
+
+```bash
+# Preview what would be embedded
+schenesort metadata embed ~/wallpapers --dry-run
+
+# Embed metadata into images
+schenesort metadata embed ~/wallpapers
+
+# Process recursively
+schenesort metadata embed ~/wallpapers -r
+```
+
+This writes to standard IPTC/XMP fields that photo managers understand:
+
+| Sidecar Field | Embedded As |
+|---------------|-------------|
+| description + scene | IPTC:Caption-Abstract, XMP:Description |
+| tags | IPTC:Keywords, XMP:Subject |
+| mood, style, colors, time, subject | Sidecar only (no standard field) |
+
+The sidecar remains the source of truth for all fields; embedding copies compatible fields into the image for broader tool compatibility.

@@ -49,6 +49,10 @@ def sanitize_filename(name: str) -> str:
         last_dot = name.rfind(".")
         stem = name[:last_dot]
         ext = name[last_dot:]
+        # If ext is just a dot (no actual extension), treat as part of stem
+        if ext == ".":
+            stem = name
+            ext = ""
     else:
         stem = name
         ext = ""
@@ -134,6 +138,10 @@ def sanitize(
 
     renamed_count = 0
     for filepath in files:
+        # Skip .xmp sidecar files - they follow their parent image
+        if filepath.suffix.lower() == ".xmp":
+            continue
+
         old_name = filepath.name
         new_name = sanitize_filename(old_name)
 
@@ -150,6 +158,24 @@ def sanitize(
                     continue
                 filepath.rename(new_path)
                 typer.echo(f"Renamed: {old_name} -> {new_name}")
+
+            # Handle associated XMP sidecar file
+            old_xmp = get_xmp_path(filepath)
+            if old_xmp.exists():
+                new_xmp = get_xmp_path(new_path)
+                if dry_run:
+                    typer.echo(f"Would rename: {old_xmp} -> {new_xmp}")
+                else:
+                    if new_xmp.exists():
+                        typer.echo(
+                            f"Skipping: {old_xmp} (target '{new_xmp}' already exists)",
+                            err=True,
+                        )
+                    else:
+                        old_xmp.rename(new_xmp)
+                        typer.echo(f"Renamed: {old_xmp.name} -> {new_xmp.name}")
+                renamed_count += 1
+
             renamed_count += 1
 
     action = "Would rename" if dry_run else "Renamed"
@@ -255,6 +281,26 @@ def info(
         typer.echo(f"  {ext}: {count}")
 
 
+@app.command()
+def browse(
+    path: Annotated[Path, typer.Argument(help="Directory or file to browse")],
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Browse directories recursively")
+    ] = False,
+) -> None:
+    """Browse wallpapers in a terminal UI with image preview and metadata display."""
+    from schenesort.tui import WallpaperBrowser
+
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    app_instance = WallpaperBrowser(path, recursive=recursive)
+    app_instance.run()
+
+
 DEFAULT_MODEL = "llava"
 
 
@@ -301,6 +347,7 @@ Each field on its own line, use commas to separate multiple values.
 Be concise and specific. Use lowercase.
 
 Description: [3-5 word description for filename]
+Scene: [1-3 sentence description of what the image depicts, including composition and atmosphere]
 Tags: [comma-separated keywords, 3-6 tags]
 Mood: [comma-separated moods like peaceful, dramatic, mysterious, vibrant, melancholic]
 Style: [one of: photography, digital art, illustration, 3d render, anime, painting, pixel art]
@@ -370,6 +417,9 @@ def parse_metadata_response(response: str) -> dict[str, str | list[str]]:
         # Fields that should be lists
         if key in ("tags", "mood", "colors"):
             result[key] = [v.strip().lower() for v in value.split(",") if v.strip()]
+        # Scene keeps original case (it's a sentence)
+        elif key == "scene":
+            result[key] = value
         else:
             result[key] = value.lower()
 
@@ -543,6 +593,8 @@ def metadata_show(
         else:
             if metadata.description:
                 typer.echo(f"  Description: {metadata.description}")
+            if metadata.scene:
+                typer.echo(f"  Scene: {metadata.scene}")
             if metadata.tags:
                 typer.echo(f"  Tags: {', '.join(metadata.tags)}")
             if metadata.mood:
@@ -688,6 +740,8 @@ def metadata_generate(
                 new_stem = sanitize_filename(str(description))
                 new_name = new_stem + filepath.suffix.lower()
                 typer.echo(f"  Would rename: {filepath.name} -> {new_name}")
+            if result.get("scene"):
+                typer.echo(f"  Scene: {result['scene']}")
             if result.get("tags"):
                 typer.echo(f"  Tags: {', '.join(result['tags'])}")
             if result.get("mood"):
@@ -726,6 +780,8 @@ def metadata_generate(
             metadata = existing
             metadata.description = str(description)
             metadata.ai_model = model
+            if isinstance(result.get("scene"), str):
+                metadata.scene = result["scene"]
             if isinstance(result.get("tags"), list):
                 metadata.tags = result["tags"]
             if isinstance(result.get("mood"), list):
@@ -745,6 +801,123 @@ def metadata_generate(
 
     action = "Would generate" if dry_run else "Generated"
     typer.echo(f"\n{action} metadata for {generated_count} file(s), skipped {skipped_count}.")
+
+
+@metadata_app.command("embed")
+def metadata_embed(
+    path: Annotated[Path, typer.Argument(help="Image file or directory")],
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", "-n", help="Show what would be embedded")
+    ] = False,
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = False,
+) -> None:
+    """Embed XMP sidecar metadata into image files using exiftool."""
+    import shutil
+    import subprocess
+
+    # Check for exiftool
+    if not shutil.which("exiftool"):
+        typer.echo("Error: exiftool not found. Install it first:", err=True)
+        typer.echo("  Arch: pacman -S perl-image-exiftool", err=True)
+        typer.echo("  Debian: apt install libimage-exiftool-perl", err=True)
+        raise typer.Exit(1)
+
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if path.is_file():
+        files = [path]
+    else:
+        pattern = "**/*" if recursive else "*"
+        files = [f for f in path.glob(pattern) if f.is_file()]
+
+    # Filter to image files that have sidecars
+    image_files = [
+        f for f in files if f.suffix.lower() in VALID_IMAGE_EXTENSIONS and get_xmp_path(f).exists()
+    ]
+
+    if not image_files:
+        typer.echo("No image files with XMP sidecars found.")
+        raise typer.Exit(0)
+
+    typer.echo(f"Embedding metadata into {len(image_files)} image(s)...\n")
+
+    embedded_count = 0
+    skipped_count = 0
+
+    for filepath in image_files:
+        metadata = read_xmp(filepath)
+
+        if metadata.is_empty():
+            typer.echo(f"Skipping: {filepath.name} (empty sidecar)")
+            skipped_count += 1
+            continue
+
+        # Build exiftool arguments
+        args = ["exiftool", "-overwrite_original"]
+
+        # Description: combine short description and scene for full context
+        full_description = metadata.description
+        if metadata.scene:
+            full_description = f"{metadata.description}. {metadata.scene}"
+
+        if full_description:
+            args.extend([f"-IPTC:Caption-Abstract={full_description}"])
+            args.extend([f"-XMP:Description={full_description}"])
+
+        # Tags/Keywords
+        if metadata.tags:
+            for tag in metadata.tags:
+                args.extend([f"-IPTC:Keywords={tag}"])
+                args.extend([f"-XMP:Subject={tag}"])
+
+        # Only description and tags have standard fields
+        # Log what custom fields exist but can't be embedded in standard fields
+        custom_fields = []
+        if metadata.mood:
+            custom_fields.append(f"mood: {', '.join(metadata.mood)}")
+        if metadata.style:
+            custom_fields.append(f"style: {metadata.style}")
+        if metadata.colors:
+            custom_fields.append(f"colors: {', '.join(metadata.colors)}")
+        if metadata.time_of_day:
+            custom_fields.append(f"time: {metadata.time_of_day}")
+        if metadata.subject:
+            custom_fields.append(f"subject: {metadata.subject}")
+
+        args.append(str(filepath))
+
+        if dry_run:
+            typer.echo(f"Would embed: {filepath.name}")
+            if full_description:
+                ellipsis = "..." if len(full_description) > 80 else ""
+                typer.echo(f"  Description: {full_description[:80]}{ellipsis}")
+            if metadata.tags:
+                typer.echo(f"  Keywords: {', '.join(metadata.tags)}")
+            if custom_fields:
+                typer.echo(f"  (sidecar-only: {'; '.join(custom_fields)})")
+        else:
+            result = subprocess.run(args, capture_output=True, text=True)
+            if result.returncode == 0:
+                typer.echo(f"Embedded: {filepath.name}")
+                embedded_count += 1
+            else:
+                typer.echo(f"Failed: {filepath.name} - {result.stderr.strip()}", err=True)
+                skipped_count += 1
+                continue
+
+        if not dry_run:
+            pass  # already counted above
+        else:
+            embedded_count += 1
+
+    action = "Would embed" if dry_run else "Embedded"
+    typer.echo(f"\n{action} metadata in {embedded_count} file(s), skipped {skipped_count}.")
 
 
 if __name__ == "__main__":

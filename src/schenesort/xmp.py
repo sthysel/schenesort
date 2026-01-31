@@ -24,6 +24,7 @@ class ImageMetadata:
     """Metadata for a wallpaper image."""
 
     description: str = ""
+    scene: str = ""  # Fuller scene description
     tags: list[str] = field(default_factory=list)
     mood: list[str] = field(default_factory=list)
     style: str = ""
@@ -37,6 +38,7 @@ class ImageMetadata:
         return not any(
             [
                 self.description,
+                self.scene,
                 self.tags,
                 self.mood,
                 self.style,
@@ -128,6 +130,11 @@ def read_xmp(image_path: Path) -> ImageMetadata:
         if subject_elem is not None and subject_elem.text:
             metadata.subject = subject_elem.text
 
+        # Read scene (full description)
+        scene_elem = desc_elem.find("schenesort:scene", NAMESPACES)
+        if scene_elem is not None and scene_elem.text:
+            metadata.scene = scene_elem.text
+
         return metadata
 
     except Exception:
@@ -200,6 +207,11 @@ def write_xmp(image_path: Path, metadata: ImageMetadata) -> None:
     if metadata.subject:
         subject_elem = ET.SubElement(desc, f"{{{NAMESPACES['schenesort']}}}subject")
         subject_elem.text = metadata.subject
+
+    # Add scene (full description)
+    if metadata.scene:
+        scene_elem = ET.SubElement(desc, f"{{{NAMESPACES['schenesort']}}}scene")
+        scene_elem.text = metadata.scene
 
     # Write to file
     tree = ET.ElementTree(root)
