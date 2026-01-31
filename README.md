@@ -63,8 +63,11 @@ The `describe` command uses Ollama with a vision model to analyze images and gen
 ### Ollama Setup (Arch Linux)
 
 ```bash
-# Install from AUR
+# Install from AUR (CPU only)
 yay -S ollama
+
+# For NVIDIA GPU support, also install:
+yay -S ollama-cuda
 
 # Enable and start the service
 sudo systemctl enable ollama
@@ -76,13 +79,31 @@ ollama pull llava:13b       # Larger/better, ~8GB
 
 # Verify it works
 ollama run llava "hello"
+
+# Verify GPU is being used
+ollama ps
+# Should show "100% GPU" not "100% CPU"
 ```
 
-**GPU Support (NVIDIA):**
+**Note:** On Arch, you need **both** `ollama` and `ollama-cuda` packages for GPU acceleration. The `ollama-cuda` package provides the CUDA library that the base `ollama` package loads at runtime. After installing `ollama-cuda`, restart the service:
+
 ```bash
-yay -S cuda cudnn
+sudo systemctl restart ollama
 ```
-Ollama automatically detects and uses the GPU.
+
+**Known Issue:** There's a CUDA bug where API-based image processing crashes while interactive mode works. If you see "model runner has unexpectedly stopped" errors, workarounds:
+
+```bash
+# Option 1: Prefix schenesort commands (temporary)
+CUDA_VISIBLE_DEVICES="" schenesort describe ~/wallpapers
+
+# Option 2: Run Ollama in CPU mode (permanent)
+sudo systemctl edit ollama
+# Add: Environment="CUDA_VISIBLE_DEVICES="
+sudo systemctl daemon-reload && sudo systemctl restart ollama
+```
+
+See [ollama-setup.md](ollama-setup.md) for details.
 
 ### Usage
 

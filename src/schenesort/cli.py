@@ -257,6 +257,40 @@ def info(
 
 DEFAULT_MODEL = "llava"
 
+
+@app.command()
+def models(
+    host: Annotated[
+        str | None,
+        typer.Option("--host", "-H", help="Ollama server URL (e.g., http://server:11434)"),
+    ] = None,
+) -> None:
+    """List available models on the Ollama server."""
+    try:
+        client = ollama.Client(host=host) if host else ollama
+        response = client.list()
+
+        if not response.models:
+            typer.echo("No models found.")
+            raise typer.Exit(0)
+
+        server_info = host or "localhost:11434"
+        typer.echo(f"Models on {server_info}:\n")
+
+        for model in response.models:
+            name = model.model
+            size_gb = (model.size or 0) / (1024**3)
+            param_size = model.details.parameter_size if model.details else ""
+            typer.echo(f"  {name} ({size_gb:.1f} GB, {param_size})")
+
+    except ollama.ResponseError as e:
+        typer.echo(f"Ollama error: {e}", err=True)
+        raise typer.Exit(1) from None
+    except Exception as e:
+        typer.echo(f"Error connecting to Ollama: {e}", err=True)
+        raise typer.Exit(1) from None
+
+
 DESCRIBE_PROMPT = """Describe this image in 3-5 words suitable for a filename.
 Focus on the main subject and style. Be concise and specific.
 Output ONLY the description, no punctuation, no explanation.
@@ -284,13 +318,21 @@ Time: night
 Subject: urban"""
 
 
-def describe_image(filepath: Path, model: str = DEFAULT_MODEL) -> str | None:
+def describe_image(
+    filepath: Path,
+    model: str = DEFAULT_MODEL,
+    use_cpu: bool = False,
+    host: str | None = None,
+) -> str | None:
     """Use Ollama vision model to describe an image (simple description only)."""
     try:
         with open(filepath, "rb") as f:
             image_data = base64.b64encode(f.read()).decode("utf-8")
 
-        response = ollama.chat(
+        options = {"num_gpu": 0} if use_cpu else {}
+        client = ollama.Client(host=host) if host else ollama
+
+        response = client.chat(
             model=model,
             messages=[
                 {
@@ -299,6 +341,7 @@ def describe_image(filepath: Path, model: str = DEFAULT_MODEL) -> str | None:
                     "images": [image_data],
                 }
             ],
+            options=options,
         )
         return response["message"]["content"].strip()
     except ollama.ResponseError as e:
@@ -333,13 +376,21 @@ def parse_metadata_response(response: str) -> dict[str, str | list[str]]:
     return result
 
 
-def analyze_image(filepath: Path, model: str = DEFAULT_MODEL) -> dict[str, str | list[str]] | None:
+def analyze_image(
+    filepath: Path,
+    model: str = DEFAULT_MODEL,
+    use_cpu: bool = False,
+    host: str | None = None,
+) -> dict[str, str | list[str]] | None:
     """Use Ollama vision model to analyze an image and extract full metadata."""
     try:
         with open(filepath, "rb") as f:
             image_data = base64.b64encode(f.read()).decode("utf-8")
 
-        response = ollama.chat(
+        options = {"num_gpu": 0} if use_cpu else {}
+        client = ollama.Client(host=host) if host else ollama
+
+        response = client.chat(
             model=model,
             messages=[
                 {
@@ -348,6 +399,7 @@ def analyze_image(filepath: Path, model: str = DEFAULT_MODEL) -> dict[str, str |
                     "images": [image_data],
                 }
             ],
+            options=options,
         )
         return parse_metadata_response(response["message"]["content"])
     except ollama.ResponseError as e:
@@ -371,6 +423,11 @@ def describe(
     model: Annotated[
         str, typer.Option("--model", "-m", help="Ollama vision model to use")
     ] = DEFAULT_MODEL,
+    cpu: Annotated[bool, typer.Option("--cpu", help="Use CPU only (no GPU acceleration)")] = False,
+    host: Annotated[
+        str | None,
+        typer.Option("--host", "-H", help="Ollama server URL (e.g., http://server:11434)"),
+    ] = None,
 ) -> None:
     """Rename images based on AI-generated descriptions using Ollama."""
     path = path.resolve()
@@ -400,7 +457,7 @@ def describe(
     for filepath in image_files:
         typer.echo(f"Analyzing: {filepath.name}...", nl=False)
 
-        description = describe_image(filepath, model)
+        description = describe_image(filepath, model, use_cpu=cpu, host=host)
         if not description:
             typer.echo(" [FAILED]")
             skipped_count += 1
@@ -574,8 +631,16 @@ def metadata_generate(
     overwrite: Annotated[
         bool, typer.Option("--overwrite", help="Overwrite existing descriptions")
     ] = False,
+    rename: Annotated[
+        bool, typer.Option("--rename/--no-rename", help="Rename files based on description")
+    ] = True,
+    cpu: Annotated[bool, typer.Option("--cpu", help="Use CPU only (no GPU acceleration)")] = False,
+    host: Annotated[
+        str | None,
+        typer.Option("--host", "-H", help="Ollama server URL (e.g., http://server:11434)"),
+    ] = None,
 ) -> None:
-    """Generate metadata using AI vision model."""
+    """Generate metadata using AI vision model and optionally rename files."""
     path = path.resolve()
 
     if not path.exists():
@@ -609,7 +674,7 @@ def metadata_generate(
 
         typer.echo(f"Analyzing: {filepath.name}...", nl=False)
 
-        result = analyze_image(filepath, model)
+        result = analyze_image(filepath, model, use_cpu=cpu, host=host)
         if not result:
             typer.echo(" [FAILED]")
             skipped_count += 1
@@ -619,6 +684,10 @@ def metadata_generate(
         typer.echo(f" -> {description}")
 
         if dry_run:
+            if rename:
+                new_stem = sanitize_filename(str(description))
+                new_name = new_stem + filepath.suffix.lower()
+                typer.echo(f"  Would rename: {filepath.name} -> {new_name}")
             if result.get("tags"):
                 typer.echo(f"  Tags: {', '.join(result['tags'])}")
             if result.get("mood"):
@@ -633,6 +702,27 @@ def metadata_generate(
                 typer.echo(f"  Subject: {result['subject']}")
             typer.echo("  (dry run, not saving)")
         else:
+            # Rename file if requested
+            target_path = filepath
+            if rename:
+                new_stem = sanitize_filename(str(description))
+                new_name = new_stem + filepath.suffix.lower()
+
+                if filepath.name != new_name:
+                    new_path = filepath.parent / new_name
+
+                    # Handle filename collisions
+                    counter = 1
+                    while new_path.exists() and new_path != filepath:
+                        new_name = f"{new_stem}_{counter}{filepath.suffix.lower()}"
+                        new_path = filepath.parent / new_name
+                        counter += 1
+
+                    filepath.rename(new_path)
+                    target_path = new_path
+                    typer.echo(f"  Renamed: {filepath.name} -> {new_name}")
+
+            # Build and save metadata
             metadata = existing
             metadata.description = str(description)
             metadata.ai_model = model
@@ -648,8 +738,8 @@ def metadata_generate(
                 metadata.time_of_day = result["time"]
             if isinstance(result.get("subject"), str):
                 metadata.subject = result["subject"]
-            write_xmp(filepath, metadata)
-            typer.echo(f"  Saved to {get_xmp_path(filepath).name}")
+            write_xmp(target_path, metadata)
+            typer.echo(f"  Saved to {get_xmp_path(target_path).name}")
 
         generated_count += 1
 
