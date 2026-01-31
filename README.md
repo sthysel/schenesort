@@ -99,7 +99,7 @@ hyprctl hyprpaper wallpaper "eDP-1,$(schenesort get -1 -p)"
 schenesort stats
 ```
 
-The database is stored at `~/.local/share/schenesort/index.db`.
+The database is stored at `$XDG_DATA_HOME/schenesort/index.db` (default: `~/.local/share/schenesort/index.db`).
 
 ## Metadata Management
 
@@ -198,7 +198,9 @@ schenesort cleanup ~/wallpapers -r
 
 ## Configuration
 
-Schenesort uses a config file at `~/.config/schenesort/config.toml` (follows XDG):
+Schenesort follows XDG Base Directory spec:
+- Config: `$XDG_CONFIG_HOME/schenesort/config.toml` (default: `~/.config/schenesort/config.toml`)
+- Data: `$XDG_DATA_HOME/schenesort/index.db` (default: `~/.local/share/schenesort/index.db`)
 
 ```bash
 # Show current config

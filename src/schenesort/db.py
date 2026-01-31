@@ -1,11 +1,30 @@
 """SQLite database for wallpaper collection indexing."""
 
+import os
 import sqlite3
 from pathlib import Path
 
 from schenesort.xmp import ImageMetadata, get_xmp_path
 
-DEFAULT_DB_PATH = Path.home() / ".local" / "share" / "schenesort" / "index.db"
+APP_NAME = "schenesort"
+
+
+def get_data_dir() -> Path:
+    """Get the XDG data directory for schenesort."""
+    xdg_data = os.environ.get("XDG_DATA_HOME", "")
+    if xdg_data:
+        data_dir = Path(xdg_data) / APP_NAME
+    else:
+        data_dir = Path.home() / ".local" / "share" / APP_NAME
+    return data_dir
+
+
+def get_default_db_path() -> Path:
+    """Get the default database path."""
+    return get_data_dir() / "index.db"
+
+
+DEFAULT_DB_PATH = get_default_db_path()
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS wallpapers (
