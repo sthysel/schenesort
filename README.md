@@ -5,6 +5,14 @@ A CLI tool for managing wallpaper collections with AI-powered metadata, terminal
 ## Installation
 
 ```bash
+uv tool install schenesort
+```
+
+For development:
+
+```bash
+git clone https://github.com/sthysel/schenesort.git
+cd schenesort
 uv sync
 ```
 
