@@ -20,8 +20,10 @@ class ImagePreview(Container):
     }
 
     ImagePreview Image {
-        width: 100%;
-        height: 100%;
+        width: auto;
+        height: auto;
+        max-width: 100%;
+        max-height: 100%;
     }
 
     ImagePreview .no-image {

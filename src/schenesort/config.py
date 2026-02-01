@@ -73,7 +73,15 @@ def load_config() -> Config:
 
         return config
 
-    except Exception:
+    except tomllib.TOMLDecodeError as e:
+        import sys
+
+        print(f"Warning: Failed to parse config file: {e}", file=sys.stderr)
+        return Config()
+    except Exception as e:
+        import sys
+
+        print(f"Warning: Failed to load config file: {e}", file=sys.stderr)
         return Config()
 
 

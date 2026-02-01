@@ -73,7 +73,15 @@ Browse your wallpaper collection with image preview and metadata display:
 ```bash
 schenesort browse ~/wallpapers
 schenesort browse ~/wallpapers -r  # recursive
+schenesort browse                  # uses paths.wallpaper from config
+schenesort get --mood peaceful -b  # browse query results
 ```
+
+![Browse example - Greek](docs/browse-greek.png)
+
+![Browse example - Autumn](docs/browse-autumn.png)
+
+![Browse example - Stallman](docs/browse-stallman.png)
 
 **Keyboard shortcuts:**
 | Key          | Action         |
@@ -109,6 +117,10 @@ schenesort get -q "mountain"              # text search
 schenesort get --random -n 10             # 10 random wallpapers
 schenesort get -1                         # single random wallpaper
 schenesort get -1 --mood dramatic         # random with filter
+
+# Browse results in TUI
+schenesort get --mood peaceful --browse   # open matches in browser
+schenesort get --style photography -b     # short form
 
 # For scripting (paths only)
 schenesort get -1 -p                      # just the path

@@ -73,10 +73,16 @@ class WallpaperBrowser(App):
         Binding("end", "last_image", "Last", show=False),
     ]
 
-    def __init__(self, path: Path, recursive: bool = False) -> None:
+    def __init__(
+        self,
+        path: Path | None = None,
+        recursive: bool = False,
+        files: list[Path] | None = None,
+    ) -> None:
         super().__init__()
         self._base_path = path
         self._recursive = recursive
+        self._files = files  # Pre-specified file list (from query results)
         self._images: list[Path] = []
         self._current_index: int = 0
 
@@ -99,7 +105,15 @@ class WallpaperBrowser(App):
             self._update_status("No images found", "")
 
     def _load_images(self) -> None:
-        """Load list of images from the specified path."""
+        """Load list of images from the specified path or file list."""
+        # If files were provided directly (e.g., from query results), use them
+        if self._files:
+            self._images = [f for f in self._files if f.exists()]
+            return
+
+        if self._base_path is None:
+            return
+
         if self._base_path.is_file():
             if self._base_path.suffix.lower() in VALID_IMAGE_EXTENSIONS:
                 self._images = [self._base_path]
@@ -128,12 +142,11 @@ class WallpaperBrowser(App):
         panel.update_metadata(metadata, current_image.name)
 
         # Update status
-        self._update_status(
-            str(current_image.relative_to(self._base_path))
-            if current_image.is_relative_to(self._base_path)
-            else current_image.name,
-            f"{self._current_index + 1}/{len(self._images)}",
-        )
+        if self._base_path and current_image.is_relative_to(self._base_path):
+            display_path = str(current_image.relative_to(self._base_path))
+        else:
+            display_path = current_image.name
+        self._update_status(display_path, f"{self._current_index + 1}/{len(self._images)}")
 
     def _update_status(self, left: str, right: str) -> None:
         """Update the status bar."""

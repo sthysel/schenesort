@@ -444,6 +444,9 @@ def get(
     paths_only: Annotated[
         bool, typer.Option("--paths-only", "-p", help="Output only file paths (for scripting)")
     ] = False,
+    browse: Annotated[
+        bool, typer.Option("--browse", "-b", help="Open results in TUI browser")
+    ] = False,
 ) -> None:
     """Query wallpapers by metadata attributes."""
     from schenesort.db import WallpaperDB
@@ -472,7 +475,13 @@ def get(
             typer.echo("No wallpapers found matching criteria.", err=True)
             raise typer.Exit(1)
 
-        if paths_only:
+        if browse:
+            from schenesort.tui import WallpaperBrowser
+
+            files = [Path(r["path"]) for r in results]
+            app_instance = WallpaperBrowser(files=files)
+            app_instance.run()
+        elif paths_only:
             for r in results:
                 typer.echo(r["path"])
         else:
@@ -542,13 +551,25 @@ def stats() -> None:
 
 @app.command()
 def browse(
-    path: Annotated[Path, typer.Argument(help="Directory or file to browse")],
+    path: Annotated[
+        Path | None,
+        typer.Argument(help="Directory or file to browse (default: config wallpaper path)"),
+    ] = None,
     recursive: Annotated[
         bool, typer.Option("--recursive", "-r", help="Browse directories recursively")
     ] = False,
 ) -> None:
     """Browse wallpapers in a terminal UI with image preview and metadata display."""
     from schenesort.tui import WallpaperBrowser
+
+    if path is None:
+        cfg = load_config()
+        if cfg.wallpaper_path:
+            path = Path(cfg.wallpaper_path).expanduser()
+        else:
+            typer.echo("Error: No path provided and no wallpaper path configured.", err=True)
+            typer.echo("Set paths.wallpaper in config or provide a path argument.", err=True)
+            raise typer.Exit(1)
 
     path = path.resolve()
 
@@ -572,22 +593,17 @@ def config(
     config_path = get_config_path()
 
     if create:
+        already_existed = config_path.exists()
         path = create_default_config()
-        if path.exists():
-            typer.echo(f"Config file: {path}")
-            if path == config_path:
-                typer.echo("(already existed)" if not create else "(created)")
-    else:
+        typer.echo(f"Config file: {path}")
+        typer.echo("(already existed)" if already_existed else "(created)")
+
+    if config_path.exists():
+        typer.echo(f"Config file: {config_path}\n")
+        typer.echo(config_path.read_text())
+    elif not create:
         typer.echo(f"Config file: {config_path}")
-        if config_path.exists():
-            typer.echo("\nCurrent settings:")
-            cfg = load_config()
-            typer.echo(f"  ollama.host: {cfg.ollama_host or '(default: localhost:11434)'}")
-            typer.echo(f"  ollama.model: {cfg.ollama_model}")
-            if cfg.wallpaper_path:
-                typer.echo(f"  paths.wallpaper: {cfg.wallpaper_path}")
-        else:
-            typer.echo("(file does not exist, use --create to create)")
+        typer.echo("(file does not exist, use --create to create)")
 
 
 DEFAULT_MODEL = "llava"
@@ -1108,20 +1124,27 @@ def metadata_generate(
             metadata = existing
             metadata.description = str(description)
             metadata.ai_model = effective_model
-            if isinstance(result.get("scene"), str):
-                metadata.scene = result["scene"]
-            if isinstance(result.get("tags"), list):
-                metadata.tags = result["tags"]
-            if isinstance(result.get("mood"), list):
-                metadata.mood = result["mood"]
-            if isinstance(result.get("style"), str):
-                metadata.style = result["style"]
-            if isinstance(result.get("colors"), list):
-                metadata.colors = result["colors"]
-            if isinstance(result.get("time"), str):
-                metadata.time_of_day = result["time"]
-            if isinstance(result.get("subject"), str):
-                metadata.subject = result["subject"]
+            scene = result.get("scene")
+            if isinstance(scene, str):
+                metadata.scene = scene
+            tags = result.get("tags")
+            if isinstance(tags, list):
+                metadata.tags = tags
+            mood = result.get("mood")
+            if isinstance(mood, list):
+                metadata.mood = mood
+            style = result.get("style")
+            if isinstance(style, str):
+                metadata.style = style
+            colors = result.get("colors")
+            if isinstance(colors, list):
+                metadata.colors = colors
+            time_val = result.get("time")
+            if isinstance(time_val, str):
+                metadata.time_of_day = time_val
+            subject = result.get("subject")
+            if isinstance(subject, str):
+                metadata.subject = subject
 
             # Add image dimensions
             width, height = get_image_dimensions(target_path)
