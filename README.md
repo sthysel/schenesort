@@ -1,6 +1,18 @@
 # Schenesort v2.1.1
 
-A CLI tool for managing wallpaper collections with AI-powered metadata, terminal UI browsing, and fast SQLite-based querying.
+A CLI tool for managing wallpaper collections with model generated metadata, terminal UI browsing, and SQLite-based
+querying.
+
+schenesort takes a directory of random wallpapers, with random filenames, and uses olama with a decent vision model to
+- look at each wallpaper
+- rename the wallpaper to something sensible
+- drop a XMP sidecar with metadata about the file
+
+Once you have a collection of wallpapers re-named with metadata sidecars, run the indexer over it to create a sqlitedb
+that can be queried to retrieve suggestions based on tags, colours, names and the like. Then use `get` to get a
+wallpaper path `feh $(schenesort get -1 -p)` or `hyprctl hyprpaper wallpaper "eDP-1,$(schenesort get -1 -p)"`
+
+schenesort also provides a bunch of utility commands to satisfy a gooner collection.
 
 ## Installation
 
@@ -19,7 +31,7 @@ uv sync
 ## Quick Start
 
 ```bash
-# Generate AI metadata for images
+# Generate metadata for images
 schenesort metadata generate ~/wallpapers -r
 
 # Browse with TUI
@@ -298,15 +310,15 @@ Metadata is stored in standard XMP format, compatible with digiKam, darktable, a
 
 Images are tagged with recommended screen sizes based on resolution:
 
-| Screen | Resolution |
-|--------|------------|
-| 8K | 7680x4320 |
-| 5K | 5120x2880 |
-| 4K | 3840x2160 |
-| Ultrawide 4K | 5120x2160 |
-| Ultrawide 1440p | 3440x1440 |
-| 1440p | 2560x1440 |
-| 1080p | 1920x1080 |
-| 720p | 1280x720 |
+| Screen          | Resolution |
+|-----------------|------------|
+| 8K              | 7680x4320  |
+| 5K              | 5120x2880  |
+| 4K              | 3840x2160  |
+| Ultrawide 4K    | 5120x2160  |
+| Ultrawide 1440p | 3440x1440  |
+| 1440p           | 2560x1440  |
+| 1080p           | 1920x1080  |
+| 720p            | 1280x720   |
 
 An image is recommended for a screen size if it can cover the screen without upscaling.
