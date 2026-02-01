@@ -30,6 +30,9 @@ uv sync
 
 ## Quick Start
 
+To generate metadata you need a olama server serving llava nearby, it takes a minute to set one up see [ollama
+setup](./ollama-setup.md).
+
 ```bash
 # Generate metadata for images
 schenesort metadata generate ~/wallpapers -r
