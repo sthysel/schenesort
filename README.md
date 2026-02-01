@@ -12,7 +12,7 @@ Once you have a collection of wallpapers re-named with metadata sidecars, run th
 that can be queried to retrieve suggestions based on tags, colours, names and the like. Then use `get` to get a
 wallpaper path `feh $(schenesort get -1 -p)` or `hyprctl hyprpaper wallpaper "eDP-1,$(schenesort get -1 -p)"`
 
-schenesort also provides a bunch of utility commands to satisfy a gooner collection.
+![Browse example - Autumn](docs/browse-destruction.png)
 
 ## Installation
 
@@ -76,8 +76,6 @@ schenesort browse ~/wallpapers -r  # recursive
 schenesort browse                  # uses paths.wallpaper from config
 schenesort get --mood peaceful -b  # browse query results
 ```
-
-![Browse example - Greek](docs/browse-greek.png)
 
 ![Browse example - Autumn](docs/browse-autumn.png)
 
@@ -154,7 +152,7 @@ Store metadata in XMP sidecar files (`.xmp`) alongside images without modifying 
 | `source`             | Source URL or info                                       |
 | `ai_model`           | Model used for metadata generation                       |
 
-### Generate Metadata with AI
+### Generate Metadata using ollama
 
 ```bash
 # Preview what would be generated
