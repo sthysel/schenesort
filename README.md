@@ -63,6 +63,7 @@ schenesort get -1 -p | xargs feh  # random wallpaper
 | `info`                       | Show collection file statistics                     |
 | `describe`                   | AI-rename images based on content (Ollama)          |
 | `models`                     | List available Ollama models                        |
+| `collage`                    | Create a collage grid from matching wallpapers      |
 | `metadata show`              | Display XMP sidecar metadata                        |
 | `metadata set`               | Manually set metadata fields                        |
 | `metadata generate`          | Generate metadata with AI (Ollama)                  |
@@ -133,6 +134,36 @@ schenesort stats
 ```
 
 The database is stored at `$XDG_DATA_HOME/schenesort/index.db` (default: `~/.local/share/schenesort/index.db`).
+
+## Collage Generation
+
+Create a collage grid (up to 4x4) from wallpapers matching query criteria:
+
+```bash
+# Create a 2x2 collage (default)
+schenesort collage output.png --mood peaceful
+
+# Create a 4x4 collage of landscape images
+schenesort collage wall.png --subject landscape --cols 4 --rows 4
+
+# Custom tile size (default: 480x270)
+schenesort collage collage.png --tile-width 640 --tile-height 360
+
+# Combine filters
+schenesort collage night_cities.png --time night --subject urban --cols 3 --rows 2
+```
+
+![Collage example](docs/collage.png)
+
+| Option          | Description                          | Default |
+|-----------------|--------------------------------------|---------|
+| `--cols`        | Number of columns (1-4)              | 2       |
+| `--rows`        | Number of rows (1-4)                 | 2       |
+| `--tile-width`  | Width of each tile in pixels         | 480     |
+| `--tile-height` | Height of each tile in pixels        | 270     |
+| `--random`      | Select images randomly               | True    |
+
+All `get` query filters are supported: `--tag`, `--mood`, `--color`, `--style`, `--subject`, `--time`, `--screen`, `--min-width`, `--min-height`, `--search`.
 
 ## Metadata Management
 

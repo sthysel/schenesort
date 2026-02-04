@@ -1225,6 +1225,138 @@ def metadata_update_dimensions(
     typer.echo(f"\n{action} {updated_count} sidecar(s), skipped {skipped_count}.")
 
 
+@app.command()
+def collage(
+    output: Annotated[Path, typer.Argument(help="Output PNG file path")],
+    tag: Annotated[str | None, typer.Option("--tag", "-t", help="Filter by tag")] = None,
+    mood: Annotated[str | None, typer.Option("--mood", "-m", help="Filter by mood")] = None,
+    color: Annotated[str | None, typer.Option("--color", "-c", help="Filter by color")] = None,
+    style: Annotated[str | None, typer.Option("--style", "-s", help="Filter by style")] = None,
+    subject: Annotated[str | None, typer.Option("--subject", help="Filter by subject")] = None,
+    time: Annotated[str | None, typer.Option("--time", help="Filter by time of day")] = None,
+    screen: Annotated[
+        str | None, typer.Option("--screen", help="Filter by recommended screen (4K, 1440p, etc)")
+    ] = None,
+    min_width: Annotated[
+        int | None, typer.Option("--min-width", help="Minimum width in pixels")
+    ] = None,
+    min_height: Annotated[
+        int | None, typer.Option("--min-height", help="Minimum height in pixels")
+    ] = None,
+    search: Annotated[
+        str | None, typer.Option("--search", "-q", help="Search description, scene, style, subject")
+    ] = None,
+    cols: Annotated[int, typer.Option("--cols", help="Number of columns (1-4)")] = 2,
+    rows: Annotated[int, typer.Option("--rows", help="Number of rows (1-4)")] = 2,
+    tile_width: Annotated[
+        int, typer.Option("--tile-width", "-w", help="Width of each tile in pixels")
+    ] = 480,
+    tile_height: Annotated[
+        int, typer.Option("--tile-height", "-h", help="Height of each tile in pixels")
+    ] = 270,
+    random: Annotated[bool, typer.Option("--random", "-R", help="Select images randomly")] = True,
+) -> None:
+    """Create a collage of wallpapers matching the given criteria (max 4x4 grid)."""
+    from PIL import Image
+
+    from schenesort.db import WallpaperDB
+
+    # Validate grid size
+    if cols < 1 or cols > 4:
+        typer.echo("Error: --cols must be between 1 and 4.", err=True)
+        raise typer.Exit(1)
+    if rows < 1 or rows > 4:
+        typer.echo("Error: --rows must be between 1 and 4.", err=True)
+        raise typer.Exit(1)
+
+    num_images = cols * rows
+
+    with WallpaperDB() as db:
+        results = db.query(
+            tag=tag,
+            mood=mood,
+            color=color,
+            style=style,
+            subject=subject,
+            time_of_day=time,
+            screen=screen,
+            min_width=min_width,
+            min_height=min_height,
+            search=search,
+            limit=num_images,
+            random=random,
+        )
+
+        if not results:
+            typer.echo("No wallpapers found matching criteria.", err=True)
+            raise typer.Exit(1)
+
+        if len(results) < num_images:
+            typer.echo(
+                f"Warning: Only found {len(results)} image(s), "
+                f"need {num_images} for {cols}x{rows} grid."
+            )
+
+        # Create collage canvas
+        collage_width = cols * tile_width
+        collage_height = rows * tile_height
+        collage_img = Image.new("RGB", (collage_width, collage_height), color=(0, 0, 0))
+
+        typer.echo(f"Creating {cols}x{rows} collage ({collage_width}x{collage_height})...")
+
+        for idx, r in enumerate(results):
+            if idx >= num_images:
+                break
+
+            filepath = Path(r["path"])
+            row = idx // cols
+            col = idx % cols
+
+            try:
+                with Image.open(filepath) as img:
+                    # Convert to RGB if necessary (handles RGBA, palette, etc.)
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")
+
+                    # Resize to fit tile while preserving aspect ratio, then crop to fill
+                    img_ratio = img.width / img.height
+                    tile_ratio = tile_width / tile_height
+
+                    if img_ratio > tile_ratio:
+                        # Image is wider - fit by height, crop width
+                        new_height = tile_height
+                        new_width = int(tile_height * img_ratio)
+                    else:
+                        # Image is taller - fit by width, crop height
+                        new_width = tile_width
+                        new_height = int(tile_width / img_ratio)
+
+                    img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                    # Center crop to tile size
+                    left = (new_width - tile_width) // 2
+                    top = (new_height - tile_height) // 2
+                    img = img.crop((left, top, left + tile_width, top + tile_height))
+
+                    # Paste into collage
+                    x = col * tile_width
+                    y = row * tile_height
+                    collage_img.paste(img, (x, y))
+
+                    typer.echo(f"  [{row},{col}] {filepath.name}")
+
+            except Exception as e:
+                typer.echo(f"  [{row},{col}] Failed to load {filepath.name}: {e}", err=True)
+
+        # Save collage
+        output = output.resolve()
+        if not output.suffix.lower() == ".png":
+            output = output.with_suffix(".png")
+
+        collage_img.save(output, "PNG")
+        typer.echo(f"\nSaved collage to: {output}")
+
+
 @metadata_app.command("embed")
 def metadata_embed(
     path: Annotated[Path, typer.Argument(help="Image file or directory")],
