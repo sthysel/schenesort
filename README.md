@@ -1,4 +1,4 @@
-# Schenesort v2.2.0
+# Schenesort v2.3.0
 
 A CLI tool for managing wallpaper collections with model generated metadata, terminal UI browsing, and SQLite-based
 querying.
