@@ -3,10 +3,9 @@
 
 ![Collage example](docs/collage.png)
 
-A CLI tool for managing wallpaper collections with model generated metadata, terminal UI browsing, and SQLite-based
-querying.
+A cli tool for managing wallpaper collections with model generated metadata, sweet tui, and sql metadata querying.
 
-schenesort takes a directory of random wallpapers, with random filenames, and uses olama with a decent vision model to
+schenesort takes a directory of random wallpapers, with random filenames, and uses olama with a decent vision model to:
 - look at each wallpaper
 - rename the wallpaper to something sensible
 - drop a XMP sidecar with metadata about the file

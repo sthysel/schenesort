@@ -582,6 +582,48 @@ def browse(
 
 
 @app.command()
+def gallery(
+    tag: Annotated[str | None, typer.Option("--tag", "-t", help="Filter by tag")] = None,
+    mood: Annotated[str | None, typer.Option("--mood", "-m", help="Filter by mood")] = None,
+    color: Annotated[str | None, typer.Option("--color", "-c", help="Filter by color")] = None,
+    style: Annotated[str | None, typer.Option("--style", "-s", help="Filter by style")] = None,
+    subject: Annotated[str | None, typer.Option("--subject", help="Filter by subject")] = None,
+    time: Annotated[str | None, typer.Option("--time", help="Filter by time of day")] = None,
+    screen: Annotated[
+        str | None, typer.Option("--screen", help="Filter by recommended screen (4K, 1440p, etc)")
+    ] = None,
+    min_width: Annotated[
+        int | None, typer.Option("--min-width", help="Minimum width in pixels")
+    ] = None,
+    min_height: Annotated[
+        int | None, typer.Option("--min-height", help="Minimum height in pixels")
+    ] = None,
+    search: Annotated[
+        str | None, typer.Option("--search", "-q", help="Search description, scene, style, subject")
+    ] = None,
+) -> None:
+    """Browse wallpapers in a thumbnail grid with filter sidebar."""
+    from schenesort.tui.grid_app import GridBrowser
+    from schenesort.tui.widgets.filter_panel import FilterValues
+
+    initial_filters = FilterValues(
+        search=search or "",
+        tag=tag or "",
+        mood=mood or "",
+        color=color or "",
+        style=style or "",
+        subject=subject or "",
+        time=time or "",
+        screen=screen or "",
+        min_width=min_width,
+        min_height=min_height,
+    )
+
+    app_instance = GridBrowser(initial_filters=initial_filters)
+    app_instance.run()
+
+
+@app.command()
 def config(
     create: Annotated[
         bool, typer.Option("--create", "-c", help="Create default config file if missing")
