@@ -156,7 +156,9 @@ schenesort collage collage.png --tile-width 640 --tile-height 360
 schenesort collage night_cities.png --time night --subject urban --cols 3 --rows 2
 ```
 
-![Collage example](docs/collage.png)
+`schenesort collage landscape.png --cols 4 --rows 4 --tile-width 640 --tile-height 360 --tag landscape`
+
+![Collage example](docs/landscape.png)
 
 | Option          | Description                          | Default |
 |-----------------|--------------------------------------|---------|
