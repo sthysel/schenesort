@@ -1,5 +1,8 @@
 # Schenesort v2.3.0
 
+
+![Collage example](docs/collage.png)
+
 A CLI tool for managing wallpaper collections with model generated metadata, terminal UI browsing, and SQLite-based
 querying.
 
