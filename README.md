@@ -1,11 +1,11 @@
 # Schenesort v2.3.0
 
-
 ![Collage example](docs/collage.png)
 
 A cli tool for managing wallpaper collections with model generated metadata, sweet tui, and sql metadata querying.
 
 schenesort takes a directory of random wallpapers, with random filenames, and uses olama with a decent vision model to:
+
 - look at each wallpaper
 - rename the wallpaper to something sensible
 - drop a XMP sidecar with metadata about the file
@@ -88,6 +88,7 @@ schenesort get --mood peaceful -b  # browse query results
 ![Browse example - Stallman](docs/browse-stallman.png)
 
 **Keyboard shortcuts:**
+
 | Key          | Action         |
 |--------------|----------------|
 | `j` / `Down` | Next image     |
@@ -267,6 +268,7 @@ schenesort cleanup ~/wallpapers -r
 ## Configuration
 
 Schenesort follows XDG Base Directory spec:
+
 - Config: `$XDG_CONFIG_HOME/schenesort/config.toml` (default: `~/.config/schenesort/config.toml`)
 - Data: `$XDG_DATA_HOME/schenesort/index.db` (default: `~/.local/share/schenesort/index.db`)
 
@@ -344,7 +346,7 @@ See [schenesort.yazi/README.md](schenesort.yazi/README.md) for details.
 
 ## XMP Sidecar Format
 
-```
+```text
 ~/wallpapers/
 ├── mountain_sunset.jpg
 ├── mountain_sunset.jpg.xmp   ← metadata stored here

@@ -3,13 +3,13 @@
 from schenesort.tui.app import WallpaperBrowser
 from schenesort.tui.grid_app import GridBrowser
 from schenesort.tui.widgets.filter_panel import FilterPanel, FilterValues
-from schenesort.tui.widgets.thumbnail_grid import ThumbnailCell, ThumbnailGrid
+from schenesort.tui.widgets.thumbnail_grid import ThumbnailGrid, ThumbnailText
 
 __all__ = [
     "FilterPanel",
     "FilterValues",
     "GridBrowser",
-    "ThumbnailCell",
     "ThumbnailGrid",
+    "ThumbnailText",
     "WallpaperBrowser",
 ]

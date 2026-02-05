@@ -4,41 +4,58 @@ from pathlib import Path
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, ScrollableContainer
+from textual.containers import Container, VerticalScroll
 from textual.message import Message
 from textual.widgets import Static
+from textual_image.widget import Image
+
+from schenesort.thumbnails import get_thumbnail_path, thumbnail_exists
 
 
-class ThumbnailCell(Static):
-    """A single thumbnail cell in the grid showing filename."""
+class ThumbnailText(Static):
+    """Text fallback for when no thumbnail exists."""
 
     DEFAULT_CSS = """
-    ThumbnailCell {
-        width: 24;
-        height: 4;
-        border: solid $background-lighten-2;
+    ThumbnailText {
+        width: 32;
+        height: 14;
         content-align: center middle;
         text-align: center;
-        overflow: hidden;
+        color: $text-muted;
+        background: $surface;
     }
 
-    ThumbnailCell.selected {
-        border: double $primary;
-        background: $primary-darken-3;
+    ThumbnailText.selected {
+        border: solid $primary;
     }
     """
 
     def __init__(self, image_path: Path, index: int, **kwargs) -> None:
-        # Show truncated filename
         name = image_path.stem
-        if len(name) > 20:
-            name = name[:17] + "..."
+        if len(name) > 28:
+            name = name[:25] + "..."
         super().__init__(name, **kwargs)
         self.image_path = image_path
         self.index = index
 
 
-class ThumbnailGrid(ScrollableContainer, can_focus=True):
+# Type alias for cell widgets
+CellWidget = Image | ThumbnailText
+
+
+def create_thumbnail_cell(image_path: Path, index: int) -> CellWidget:
+    """Create a cell widget for the given image using its thumbnail."""
+    if thumbnail_exists(image_path):
+        thumb_path = get_thumbnail_path(image_path)
+        img = Image(thumb_path)
+        # Store metadata on the widget
+        img.image_path = image_path  # type: ignore[attr-defined]
+        img.index = index  # type: ignore[attr-defined]
+        return img
+    return ThumbnailText(image_path, index)
+
+
+class ThumbnailGrid(VerticalScroll, can_focus=True):
     """Scrollable grid of image thumbnails with keyboard navigation."""
 
     BINDINGS = [
@@ -78,7 +95,6 @@ class ThumbnailGrid(ScrollableContainer, can_focus=True):
         width: 100%;
         height: 100%;
         background: $background;
-        padding: 1;
     }
 
     ThumbnailGrid:focus {
@@ -87,9 +103,20 @@ class ThumbnailGrid(ScrollableContainer, can_focus=True):
 
     ThumbnailGrid #grid-container {
         layout: grid;
-        grid-gutter: 1;
+        grid-gutter: 0;
         width: 100%;
-        height: auto;
+    }
+
+    ThumbnailGrid #grid-container Image {
+        width: 32;
+        height: 14;
+        margin: 0;
+        padding: 0;
+        border: solid $background;
+    }
+
+    ThumbnailGrid #grid-container Image.selected {
+        border: solid $primary;
     }
 
     ThumbnailGrid .empty-message {
@@ -101,21 +128,28 @@ class ThumbnailGrid(ScrollableContainer, can_focus=True):
     }
     """
 
-    CELL_WIDTH = 24
-    CELL_HEIGHT = 12
+    CELL_WIDTH = 32
+    CELL_HEIGHT = 14
 
     def __init__(self, images: list[Path] | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
         self._images: list[Path] = images or []
         self._selected_index: int = 0
         self._columns: int = 1
-        self._cells: list[ThumbnailCell] = []
+        self._cells: list[CellWidget] = []
+        self._grid_container: Container | None = None
 
     def compose(self) -> ComposeResult:
-        yield Container(id="grid-container")
+        self._grid_container = Container(id="grid-container")
+        yield self._grid_container
 
     def on_mount(self) -> None:
         """Initialize the grid on mount."""
+        # Defer initial build to after layout
+        self.call_after_refresh(self._initial_build)
+
+    def _initial_build(self) -> None:
+        """Build grid after initial layout."""
         self._calculate_columns()
         self._rebuild_grid()
 
@@ -128,13 +162,15 @@ class ThumbnailGrid(ScrollableContainer, can_focus=True):
 
     def _calculate_columns(self) -> None:
         """Calculate number of columns based on container width."""
-        # Account for padding and borders
-        available_width = max(self.size.width - 4, self.CELL_WIDTH)
-        self._columns = max(1, available_width // (self.CELL_WIDTH + 1))
+        available_width = max(self.size.width - 2, self.CELL_WIDTH)
+        self._columns = max(1, available_width // self.CELL_WIDTH)
 
     def _rebuild_grid(self) -> None:
         """Rebuild the grid with current images and column count."""
-        container = self.query_one("#grid-container", Container)
+        if self._grid_container is None:
+            return
+
+        container = self._grid_container
 
         # Clear all children from container
         container.remove_children()
@@ -147,9 +183,15 @@ class ThumbnailGrid(ScrollableContainer, can_focus=True):
         # Update grid columns CSS
         container.styles.grid_size_columns = self._columns
 
-        # Create cells (no IDs to avoid duplicate ID issues on resize)
+        # Calculate and set container height based on rows
+        # (textual-image needs explicit height, not height: auto, to render in scroll containers)
+        num_rows = (len(self._images) + self._columns - 1) // self._columns
+        container_height = num_rows * self.CELL_HEIGHT
+        container.styles.height = container_height
+
+        # Create cells
         for idx, image_path in enumerate(self._images):
-            cell = ThumbnailCell(image_path, idx)
+            cell = create_thumbnail_cell(image_path, idx)
             self._cells.append(cell)
             container.mount(cell)
 
@@ -160,6 +202,7 @@ class ThumbnailGrid(ScrollableContainer, can_focus=True):
         """Update the images displayed in the grid."""
         self._images = images
         self._selected_index = 0 if images else -1
+        self._calculate_columns()
         self._rebuild_grid()
 
     def _update_selection(self) -> None:

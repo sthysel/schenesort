@@ -158,6 +158,8 @@ class GridBrowser(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit", show=True),
+        Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
+        Binding("ctrl+q", "quit", "Quit", show=False, priority=True),
         Binding("tab", "focus_next_panel", "Switch Panel", show=True),
         Binding("shift+tab", "focus_prev_panel", "Switch Panel", show=False),
         Binding("enter", "open_detail", "Open", show=True),

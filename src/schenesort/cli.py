@@ -413,6 +413,85 @@ def index(
 
 
 @app.command()
+def thumbnail(
+    path: Annotated[Path, typer.Argument(help="Directory to generate thumbnails for")],
+    recursive: Annotated[
+        bool, typer.Option("--recursive", "-r", help="Process directories recursively")
+    ] = True,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Regenerate all thumbnails")] = False,
+    clear: Annotated[
+        bool, typer.Option("--clear", help="Clear thumbnail cache before generating")
+    ] = False,
+) -> None:
+    """Generate thumbnails for gallery view."""
+    from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn
+
+    from schenesort.thumbnails import (
+        clear_cache,
+        generate_thumbnail,
+        get_cache_stats,
+        thumbnail_exists,
+    )
+
+    path = path.resolve()
+
+    if not path.exists():
+        typer.echo(f"Error: Path '{path}' does not exist.", err=True)
+        raise typer.Exit(1)
+
+    if not path.is_dir():
+        typer.echo(f"Error: Path '{path}' is not a directory.", err=True)
+        raise typer.Exit(1)
+
+    if clear:
+        cleared = clear_cache()
+        typer.echo(f"Cleared {cleared} cached thumbnail(s).")
+
+    pattern = "**/*" if recursive else "*"
+    image_files = [
+        f for f in path.glob(pattern) if f.is_file() and f.suffix.lower() in VALID_IMAGE_EXTENSIONS
+    ]
+
+    if not image_files:
+        typer.echo("No image files found.")
+        raise typer.Exit(0)
+
+    generated = 0
+    skipped = 0
+    failed = 0
+
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+    ) as progress:
+        task = progress.add_task("Generating thumbnails", total=len(image_files))
+
+        for filepath in image_files:
+            if not force and thumbnail_exists(filepath):
+                skipped += 1
+                progress.advance(task)
+                continue
+
+            result = generate_thumbnail(filepath, force=force)
+            if result:
+                generated += 1
+            else:
+                failed += 1
+
+            progress.advance(task)
+
+    typer.echo(f"\nGenerated: {generated}, Skipped: {skipped}, Failed: {failed}")
+
+    # Show cache stats
+    stats = get_cache_stats()
+    typer.echo(f"\nCache: {stats['path']}")
+    typer.echo(f"Total thumbnails: {stats['count']}")
+    typer.echo(f"Cache size: {stats['size_mb']:.1f} MB")
+
+
+@app.command()
 def get(
     tag: Annotated[str | None, typer.Option("--tag", "-t", help="Filter by tag")] = None,
     mood: Annotated[str | None, typer.Option("--mood", "-m", help="Filter by mood")] = None,
