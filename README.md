@@ -110,6 +110,8 @@ The TUI uses textual-image for rendering, which auto-detects terminal graphics s
 
 ## Gallery Browser
 
+![Gallery example](docs/gallery.png)
+
 Browse your indexed collection with a thumbnail grid and filter panel:
 
 ```bash
