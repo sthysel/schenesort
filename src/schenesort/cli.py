@@ -1367,8 +1367,8 @@ def collage(
     search: Annotated[
         str | None, typer.Option("--search", "-q", help="Search description, scene, style, subject")
     ] = None,
-    cols: Annotated[int, typer.Option("--cols", help="Number of columns (1-4)")] = 2,
-    rows: Annotated[int, typer.Option("--rows", help="Number of rows (1-4)")] = 2,
+    cols: Annotated[int, typer.Option("--cols", help="Number of columns")] = 6,
+    rows: Annotated[int, typer.Option("--rows", help="Number of rows")] = 6,
     tile_width: Annotated[
         int, typer.Option("--tile-width", "-w", help="Width of each tile in pixels")
     ] = 480,
@@ -1377,17 +1377,17 @@ def collage(
     ] = 270,
     random: Annotated[bool, typer.Option("--random", "-R", help="Select images randomly")] = True,
 ) -> None:
-    """Create a collage of wallpapers matching the given criteria (max 4x4 grid)."""
+    """Create a collage of wallpapers matching the given criteria."""
     from PIL import Image
 
     from schenesort.db import WallpaperDB
 
     # Validate grid size
-    if cols < 1 or cols > 4:
-        typer.echo("Error: --cols must be between 1 and 4.", err=True)
+    if cols < 1:
+        typer.echo("Error: --cols must be at least 1.", err=True)
         raise typer.Exit(1)
-    if rows < 1 or rows > 4:
-        typer.echo("Error: --rows must be between 1 and 4.", err=True)
+    if rows < 1:
+        typer.echo("Error: --rows must be at least 1.", err=True)
         raise typer.Exit(1)
 
     num_images = cols * rows

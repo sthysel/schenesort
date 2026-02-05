@@ -207,10 +207,10 @@ The database is stored at `$XDG_DATA_HOME/schenesort/index.db` (default: `~/.loc
 
 ## Collage Generation
 
-Create a collage grid (up to 4x4) from wallpapers matching query criteria:
+Create a collage grid from wallpapers matching query criteria:
 
 ```bash
-# Create a 2x2 collage (default)
+# Create a 6x6 collage (default)
 schenesort collage output.png --mood peaceful
 
 # Create a 4x4 collage of landscape images
@@ -229,8 +229,8 @@ schenesort collage night_cities.png --time night --subject urban --cols 3 --rows
 
 | Option          | Description                          | Default |
 |-----------------|--------------------------------------|---------|
-| `--cols`        | Number of columns (1-4)              | 2       |
-| `--rows`        | Number of rows (1-4)                 | 2       |
+| `--cols`        | Number of columns                    | 6       |
+| `--rows`        | Number of rows                       | 6       |
 | `--tile-width`  | Width of each tile in pixels         | 480     |
 | `--tile-height` | Height of each tile in pixels        | 270     |
 | `--random`      | Select images randomly               | True    |
