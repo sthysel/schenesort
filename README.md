@@ -1,4 +1,4 @@
-# Schenesort v2.3.0
+# Schenesort v2.4.0
 
 ![Collage example](docs/collage.png)
 
