@@ -39,11 +39,17 @@ setup](./ollama-setup.md).
 # Generate metadata for images
 schenesort metadata generate ~/wallpapers -r
 
-# Browse with TUI
-schenesort browse ~/wallpapers
-
 # Index the collection
 schenesort index ~/wallpapers
+
+# Generate thumbnails for gallery
+schenesort thumbnail ~/wallpapers -r
+
+# Browse with gallery (thumbnail grid with filters)
+schenesort gallery
+
+# Browse single images with TUI
+schenesort browse ~/wallpapers
 
 # Query wallpapers
 schenesort get --mood peaceful --screen 4K
@@ -55,6 +61,8 @@ schenesort get -1 -p | xargs feh  # random wallpaper
 | Command                      | Description                                         |
 |------------------------------|-----------------------------------------------------|
 | `browse`                     | Terminal UI browser with image preview and metadata |
+| `gallery`                    | Thumbnail grid browser with filters                 |
+| `thumbnail`                  | Generate thumbnail cache for gallery                |
 | `index`                      | Build SQLite index for fast querying                |
 | `get`                        | Query wallpapers by metadata attributes             |
 | `stats`                      | Show collection statistics from index               |
@@ -99,6 +107,63 @@ schenesort get --mood peaceful -b  # browse query results
 | `q`          | Quit           |
 
 The TUI uses textual-image for rendering, which auto-detects terminal graphics support (Sixel, iTerm2, Kitty).
+
+## Gallery Browser
+
+Browse your indexed collection with a thumbnail grid and filter panel:
+
+```bash
+# Open gallery browser
+schenesort gallery
+
+# Pre-filter results
+schenesort gallery --mood peaceful
+schenesort gallery --tag nature --style photography
+```
+
+The gallery requires an indexed collection (`schenesort index`) and cached thumbnails for fast loading.
+
+### Generate Thumbnails
+
+```bash
+# Generate thumbnails for a directory
+schenesort thumbnail ~/wallpapers
+
+# Recursive with progress bar
+schenesort thumbnail ~/wallpapers -r
+
+# Force regenerate all thumbnails
+schenesort thumbnail ~/wallpapers --force
+
+# Clear thumbnail cache
+schenesort thumbnail ~/wallpapers --clear
+```
+
+Thumbnails are cached at `~/.cache/schenesort/thumbnails/` (320x200 JPEG).
+
+**Gallery keyboard shortcuts:**
+
+| Key              | Action                |
+|------------------|-----------------------|
+| `j` / `Down`     | Move down             |
+| `k` / `Up`       | Move up               |
+| `h` / `Left`     | Move left             |
+| `l` / `Right`    | Move right            |
+| `g` / `Home`     | First image           |
+| `G` / `End`      | Last image            |
+| `Enter`          | Open detail view      |
+| `Tab`            | Switch panel          |
+| `Escape`         | Clear filters         |
+| `r`              | Refresh               |
+| `q` / `Ctrl+C`   | Quit                  |
+
+**Detail view shortcuts:**
+
+| Key              | Action                |
+|------------------|-----------------------|
+| `j` / `Down`     | Next image            |
+| `k` / `Up`       | Previous image        |
+| `Escape` / `q`   | Back to grid          |
 
 ## Collection Indexing and Querying
 
