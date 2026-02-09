@@ -16,6 +16,8 @@ wallpaper path `feh $(schenesort get -1 -p)` or `hyprctl hyprpaper wallpaper "eD
 
 ![Browse example - Autumn](docs/browse-destruction.png)
 
+See [wallpapers](https://github.com/sthysel/schenesort.git) for a schenesort curated wallpaper set.
+
 ## Installation
 
 ```bash
